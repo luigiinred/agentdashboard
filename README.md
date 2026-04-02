@@ -15,15 +15,46 @@ A local web dashboard for monitoring git branches and GitHub pull requests. Desi
 
 - **Node.js 16+**
 - **Git**: Must be run from within a git repo
-- **GitHub CLI (`gh`)**: Required for PR info and review comments
+- **GitHub Token**: For PR info and comments (see Authentication below)
 
 ```bash
-# Install dependencies (macOS)
-brew install node gh
+# Install Node.js (macOS)
+brew install node
+```
 
-# Authenticate with GitHub
+## GitHub Authentication
+
+The dashboard needs a GitHub token to fetch PR info and comments. It checks in this order:
+
+1. `GITHUB_TOKEN` environment variable
+2. Token from `gh auth token` (GitHub CLI)
+
+### Option 1: GitHub CLI (Recommended)
+
+```bash
+# Install and authenticate
+brew install gh
 gh auth login
 ```
+
+The dashboard will automatically use your gh CLI token.
+
+### Option 2: Environment Variable
+
+```bash
+# Set token directly
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+
+# Or pass when starting
+GITHUB_TOKEN=ghp_xxx agentdashboard /path/to/repo
+```
+
+### Option 3: No Token
+
+Without a token, the dashboard still works but PR features are disabled:
+- No PR status or link
+- No review comments
+- No PR stack
 
 ## Installation
 
