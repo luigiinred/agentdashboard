@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~
+
+# Generated session files (stored in ~/.claude/sessions/)
+*.json

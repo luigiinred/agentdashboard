@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <!-- Live reload via JavaScript polling -->
+    <title>Session Dashboard</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --card-bg: #16213e;
+            --text: #eee;
+            --text-muted: #888;
+            --accent: #4fc3f7;
+            --green: #4caf50;
+            --red: #f44336;
+            --purple: #9c27b0;
+            --orange: #ff9800;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+            background: var(--bg);
+            color: var(--text);
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        h1 { font-size: 18px; margin-bottom: 12px; color: var(--accent); }
+        .header-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .header-row h1 { margin-bottom: 0; }
+        .user-avatar { width: 32px; height: 32px; border-radius: 50%; }
+        h2 { font-size: 14px; margin: 16px 0 8px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        h2:first-child { margin-top: 0; }
+        .card { background: var(--card-bg); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+        .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid #30363d; }
+        .tab { padding: 10px 20px; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.2s; }
+        .tab:hover { color: var(--text); }
+        .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .meta { display: flex; gap: 16px; flex-wrap: wrap; }
+        .meta-item { display: flex; flex-direction: column; }
+        .meta-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+        .meta-value { font-size: 13px; }
+        .meta-value code { background: #0d1b2a; padding: 2px 6px; border-radius: 4px; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .status-open, .status-OPEN { color: var(--green); }
+        .status-draft { color: var(--orange); }
+        .status-merged, .status-MERGED { color: var(--purple); }
+        .status-none { color: var(--text-muted); }
+        /* PR Stack */
+        .pr-tree { font-family: monospace; }
+        .pr-item { padding: 4px 0; white-space: nowrap; }
+        .pr-item.merged { color: var(--text-muted); text-decoration: line-through; }
+        .pr-item.current { color: var(--accent); font-weight: bold; text-decoration: none; }
+        .tree-char { color: var(--text-muted); }
+        .current-marker { background: var(--accent); color: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 10px; margin-left: 8px; }
+        /* Stats */
+        .stats { display: flex; gap: 12px; margin-bottom: 16px; }
+        .stat { background: #0d1b2a; padding: 8px 12px; border-radius: 4px; }
+        .stat-value { font-size: 18px; font-weight: bold; }
+        .stat-label { font-size: 10px; color: var(--text-muted); }
+        .additions { color: var(--green); }
+        .deletions { color: var(--red); }
+        /* Files tree */
+        .file-tree { font-family: monospace; font-size: 12px; }
+        .tree-folder-header { display: flex; align-items: center; padding: 4px 8px; cursor: pointer; gap: 6px; }
+        .tree-folder-header:hover { background: #161b22; }
+        .tree-folder-icon { color: var(--accent); }
+        .tree-folder-name { color: var(--text); }
+        .tree-folder-content { margin-left: 16px; border-left: 1px solid #30363d; }
+        .tree-folder-content.collapsed { display: none; }
+        .tree-file { display: flex; align-items: center; padding: 4px 8px; gap: 6px; }
+        .tree-file:hover { background: #161b22; }
+        .tree-file-name { color: var(--text); flex: 1; }
+        .tree-file-stats { display: flex; gap: 6px; font-size: 11px; }
+        .comment-badge { background: var(--accent); color: var(--bg); padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: bold; }
+        /* Threads */
+        .gh-thread { border: 1px solid #30363d; border-radius: 6px; margin: 16px 0; overflow: hidden; }
+        .gh-thread:first-child { margin-top: 0; }
+        .gh-thread.resolved { opacity: 0.7; }
+        .gh-thread-header { background: #161b22; padding: 8px 12px; display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+        .gh-thread-header:hover { background: #1c2128; }
+        .collapse-icon { color: var(--text-muted); font-size: 10px; width: 12px; }
+        .thread-meta { margin-left: auto; color: var(--text-muted); font-size: 11px; }
+        .status-resolved { color: var(--purple); }
+        .status-outdated { color: var(--orange); font-size: 10px; }
+        .gh-thread-content { }
+        .gh-thread-content.collapsed { display: none; }
+        .gh-diff-hunk { background: #0d1117; border-bottom: 1px solid #30363d; overflow-x: auto; }
+        .gh-diff-hunk pre { margin: 0; padding: 8px 12px; font-size: 11px; line-height: 1.4; }
+        .gh-diff-hunk code { color: #8b949e; font-family: monospace; white-space: pre; }
+        .gh-thread-comments { background: #0d1117; }
+        .gh-comment-item { padding: 12px; border-top: 1px solid #21262d; }
+        .gh-comment-item:first-child { border-top: none; }
+        .gh-comment-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .gh-avatar { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #238636, #2ea043); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: white; }
+        .gh-author { color: var(--text); font-size: 13px; }
+        .gh-time { color: var(--text-muted); font-size: 11px; }
+        .gh-comment-body { font-size: 13px; line-height: 1.5; color: var(--text); margin-left: 32px; }
+        .gh-comment-body pre { background: #161b22; padding: 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+        .gh-comment-body code { background: #343942; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+        .no-comments { color: var(--text-muted); font-style: italic; }
+        /* Split view for files */
+        .files-split-view { display: flex; gap: 12px; min-height: 400px; }
+        .files-tree-pane { flex: 0 0 280px; background: var(--card); border-radius: 8px; padding: 8px; overflow-y: auto; max-height: 60vh; }
+        .files-diff-pane { flex: 1; background: var(--card); border-radius: 8px; overflow: auto; max-height: 60vh; }
+        .diff-placeholder { color: var(--text-muted); padding: 20px; text-align: center; }
+        .tree-file { cursor: pointer; }
+        .tree-file:hover { background: #21262d; border-radius: 4px; }
+        .tree-file.selected { background: #1f6feb33; border-radius: 4px; }
+        /* Diff view styling */
+        .diff-header { background: #161b22; padding: 8px 12px; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid #30363d; position: sticky; top: 0; }
+        .diff-content { font-family: monospace; font-size: 11px; line-height: 1.5; }
+        .diff-line { display: flex; white-space: pre; }
+        .diff-line-num { flex: 0 0 40px; text-align: right; padding: 0 8px; color: #484f58; user-select: none; background: #161b22; }
+        .diff-line-content { flex: 1; padding: 0 12px; }
+        .diff-add { background: rgba(46, 160, 67, 0.15); }
+        .diff-add .diff-line-content { color: #7ee787; }
+        .diff-del { background: rgba(248, 81, 73, 0.15); }
+        .diff-del .diff-line-content { color: #f85149; }
+        .diff-hunk { background: rgba(56, 139, 253, 0.15); }
+        .diff-hunk .diff-line-content { color: #58a6ff; }
+        /* Responsive: stack on narrow screens */
+        @media (max-width: 600px) {
+            .files-split-view { flex-direction: column; }
+            .files-tree-pane { flex: none; max-height: 200px; }
+            .files-diff-pane { flex: none; max-height: 400px; }
+        }
+        .updated { font-size: 10px; color: var(--text-muted); text-align: right; margin-top: 16px; }
+        .loading { color: var(--text-muted); font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="header-row">
+        <img id="user-avatar" class="user-avatar" src="" style="display:none">
+        <h1 id="project-name">Loading...</h1>
+    </div>
+
+    <div class="card">
+        <div class="meta" id="meta-info"></div>
+    </div>
+
+    <div class="tabs">
+        <div class="tab active" data-tab="overview" onclick="switchTab('overview')">Overview</div>
+        <div class="tab" data-tab="files" onclick="switchTab('files')">Files (<span id="file-count">0</span>)</div>
+        <div class="tab" data-tab="comments" onclick="switchTab('comments')">Comments</div>
+    </div>
+
+    <div id="tab-overview" class="tab-content active">
+        <h2>PR Stack</h2>
+        <div class="card" id="pr-stack"></div>
+
+        <h2>Changes</h2>
+        <div class="card">
+            <div class="stats" id="stats"></div>
+        </div>
+    </div>
+
+    <div id="tab-files" class="tab-content">
+        <div class="stats" id="file-stats"></div>
+        <div class="files-split-view">
+            <div class="files-tree-pane">
+                <div class="file-tree" id="file-tree"></div>
+            </div>
+            <div class="files-diff-pane" id="diff-pane">
+                <div class="diff-placeholder">Select a file to view changes</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-comments" class="tab-content">
+        <div id="comments-list"></div>
+    </div>
+
+    <div class="updated" id="updated"></div>
+
+    <script>
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
+            document.getElementById('tab-' + tabName).classList.add('active');
+            localStorage.setItem('activeTab', tabName);
+        }
+
+        // Toggle thread collapse
+        function toggleThread(el) {
+            const content = el.nextElementSibling;
+            const icon = el.querySelector('.collapse-icon');
+            content.classList.toggle('collapsed');
+            icon.textContent = content.classList.contains('collapsed') ? '▶' : '▼';
+        }
+
+        // Toggle folder collapse
+        function toggleFolder(el) {
+            const content = el.nextElementSibling;
+            const icon = el.querySelector('.tree-folder-icon');
+            content.classList.toggle('collapsed');
+            icon.textContent = content.classList.contains('collapsed') ? '▶' : '▼';
+        }
+
+        // Escape HTML
+        function esc(str) {
+            return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // Render markdown-like text (for comments)
+        function renderMarkdown(text) {
+            if (!text) return '';
+            let html = text
+                // Strip HTML comments
+                .replace(/<!--[\s\S]*?-->/g, '')
+                // Strip div tags and their content (Cursor buttons etc)
+                .replace(/<div>[\s\S]*?<\/div>/gi, '')
+                // Preserve safe HTML tags before escaping
+                .replace(/<sup>/gi, '%%SUP%%').replace(/<\/sup>/gi, '%%/SUP%%')
+                // Escape remaining HTML
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                // Restore safe HTML tags
+                .replace(/%%SUP%%/g, '<sup>').replace(/%%\/SUP%%/g, '</sup>')
+                // Code blocks
+                .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+                .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+                // Inline code
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                // Bold
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                // Links
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+                // Headers
+                .replace(/^### (.+)$/gm, '<strong style="font-size:14px">$1</strong>')
+                .replace(/^## (.+)$/gm, '<strong style="font-size:15px">$1</strong>')
+                // Line breaks
+                .replace(/\n/g, '<br>');
+            // Clean up excessive breaks
+            html = html.replace(/(<br>){3,}/g, '<br><br>').replace(/^(<br>)+/, '').replace(/(<br>)+$/, '');
+            return html;
+        }
+
+        // Render meta info
+        function renderMeta(data) {
+            const pr = data.pr || {};
+            const prLink = pr.url ? `<a href="${pr.url}">#${pr.number}</a>` : 'None';
+            const statusClass = pr.draft ? 'status-draft' : `status-${pr.status || 'none'}`;
+            const statusText = pr.draft ? 'Draft' : (pr.status || 'No PR');
+
+            document.getElementById('meta-info').innerHTML = `
+                <div class="meta-item"><span class="meta-label">Branch</span><span class="meta-value"><code>${esc(data.branch)}</code></span></div>
+                <div class="meta-item"><span class="meta-label">Base</span><span class="meta-value"><code>${esc(data.baseBranch)}</code></span></div>
+                <div class="meta-item"><span class="meta-label">PR</span><span class="meta-value">${prLink}</span></div>
+                <div class="meta-item"><span class="meta-label">Status</span><span class="meta-value ${statusClass}">${statusText}</span></div>
+            `;
+        }
+
+        // Render PR stack
+        function renderPRStack(stack, currentBranch) {
+            if (!stack || stack.length === 0) {
+                document.getElementById('pr-stack').innerHTML = `<div class="pr-item current">${esc(currentBranch)} <span class="current-marker">current</span></div>`;
+                return;
+            }
+
+            let html = '<div class="pr-tree">';
+            stack.forEach((item, i) => {
+                const isCurrent = item.isCurrent;
+                const isMerged = item.state === 'MERGED';
+                const indent = item.indent || 0;
+                const treeChar = i < stack.length - 1 ? '├──' : '└──';
+
+                let classes = 'pr-item';
+                if (isCurrent) classes += ' current';
+                if (isMerged) classes += ' merged';
+
+                html += `<div class="${classes}" style="margin-left: ${indent}em;">`;
+                if (indent > 0) html += `<span class="tree-char">${treeChar}</span> `;
+                if (item.url) html += `<a href="${item.url}">#${item.number}</a> `;
+                html += esc(item.title);
+                if (isCurrent) html += ' <span class="current-marker">current</span>';
+                html += '</div>';
+            });
+            html += '</div>';
+            document.getElementById('pr-stack').innerHTML = html;
+        }
+
+        // Render stats
+        function renderStats(stats) {
+            const s = stats || {};
+            document.getElementById('file-count').textContent = s.fileCount || 0;
+            const statsHtml = `
+                <div class="stat"><div class="stat-value">${s.fileCount || 0}</div><div class="stat-label">files</div></div>
+                <div class="stat"><div class="stat-value additions">+${s.additions || 0}</div><div class="stat-label">additions</div></div>
+                <div class="stat"><div class="stat-value deletions">-${s.deletions || 0}</div><div class="stat-label">deletions</div></div>
+            `;
+            document.getElementById('stats').innerHTML = statsHtml;
+            document.getElementById('file-stats').innerHTML = statsHtml;
+        }
+
+        // Global file storage for diff lookup
+        let currentFiles = [];
+
+        // Show diff for a file
+        function showDiff(path) {
+            const file = currentFiles.find(f => f.path === path);
+            const pane = document.getElementById('diff-pane');
+
+            // Update selected state
+            document.querySelectorAll('.tree-file').forEach(el => el.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+
+            if (!file || !file.diff) {
+                pane.innerHTML = '<div class="diff-placeholder">No diff available</div>';
+                return;
+            }
+
+            // Parse and render diff
+            const lines = file.diff.split('\n');
+            let html = `<div class="diff-header">${esc(path)}</div><div class="diff-content">`;
+            let lineNum = 0;
+
+            lines.forEach(line => {
+                let cls = '';
+                if (line.startsWith('+') && !line.startsWith('+++')) cls = 'diff-add';
+                else if (line.startsWith('-') && !line.startsWith('---')) cls = 'diff-del';
+                else if (line.startsWith('@@')) cls = 'diff-hunk';
+
+                html += `<div class="diff-line ${cls}">
+                    <span class="diff-line-num">${cls === 'diff-hunk' ? '' : ''}</span>
+                    <span class="diff-line-content">${esc(line)}</span>
+                </div>`;
+            });
+
+            html += '</div>';
+            pane.innerHTML = html;
+        }
+
+        // Render file tree
+        function renderFiles(files, commentCounts) {
+            currentFiles = files || [];
+
+            if (!files || files.length === 0) {
+                document.getElementById('file-tree').innerHTML = '<div class="no-comments">No files changed</div>';
+                return;
+            }
+
+            // Group by top-level directory
+            const groups = {};
+            files.forEach(f => {
+                const parts = f.path.split('/');
+                const topDir = parts.length > 1 ? parts[0] : '';
+                if (!groups[topDir]) groups[topDir] = [];
+                groups[topDir].push(f);
+            });
+
+            let html = '';
+            Object.keys(groups).sort().forEach(dir => {
+                const items = groups[dir];
+                if (dir === '') {
+                    // Root files
+                    items.forEach(f => {
+                        const cc = commentCounts[f.path] || 0;
+                        const escapedPath = f.path.replace(/'/g, "\\'");
+                        html += `<div class="tree-file" onclick="showDiff('${escapedPath}')">
+                            <span class="tree-file-name">${esc(f.path)}</span>
+                            ${cc > 0 ? `<span class="comment-badge">${cc}</span>` : ''}
+                            <span class="tree-file-stats"><span class="additions">+${f.add}</span> <span class="deletions">-${f.del}</span></span>
+                        </div>`;
+                    });
+                } else {
+                    html += `<div class="tree-folder">
+                        <div class="tree-folder-header" onclick="toggleFolder(this)">
+                            <span class="tree-folder-icon">▼</span>
+                            <span class="tree-folder-name">${esc(dir)}</span>
+                        </div>
+                        <div class="tree-folder-content">`;
+                    items.forEach(f => {
+                        const relPath = f.path.split('/').slice(1).join('/');
+                        const cc = commentCounts[f.path] || 0;
+                        const escapedPath = f.path.replace(/'/g, "\\'");
+                        html += `<div class="tree-file" onclick="showDiff('${escapedPath}')">
+                            <span class="tree-file-name">${esc(relPath)}</span>
+                            ${cc > 0 ? `<span class="comment-badge">${cc}</span>` : ''}
+                            <span class="tree-file-stats"><span class="additions">+${f.add}</span> <span class="deletions">-${f.del}</span></span>
+                        </div>`;
+                    });
+                    html += '</div></div>';
+                }
+            });
+
+            document.getElementById('file-tree').innerHTML = html;
+        }
+
+        // Render comments
+        function renderComments(threads) {
+            if (!threads || threads.length === 0) {
+                document.getElementById('comments-list').innerHTML = '<div class="no-comments">No review comments yet</div>';
+                return;
+            }
+
+            let html = '';
+            threads.forEach(thread => {
+                const resolved = thread.isResolved;
+                const outdated = thread.isOutdated;
+                const comments = thread.comments || [];
+                const first = comments[0] || {};
+
+                html += `<div class="gh-thread${resolved ? ' resolved' : ''}">
+                    <div class="gh-thread-header" onclick="toggleThread(this)">
+                        <span class="collapse-icon">${resolved ? '▶' : '▼'}</span>
+                        <a href="${first.url || '#'}" onclick="event.stopPropagation()">${esc(thread.path)}</a>
+                        <span class="thread-meta">
+                            ${resolved ? '<span class="status-resolved">Resolved</span>' : '<span class="status-open">Open</span>'}
+                            ${outdated ? ' <span class="status-outdated">Outdated</span>' : ''}
+                            · ${comments.length} comment${comments.length !== 1 ? 's' : ''}
+                        </span>
+                    </div>
+                    <div class="gh-thread-content${resolved ? ' collapsed' : ''}">
+                        <div class="gh-diff-hunk"><pre><code>${esc(first.diffHunk || '').split('\n').slice(-6).join('\n')}</code></pre></div>
+                        <div class="gh-thread-comments">`;
+
+                comments.forEach(c => {
+                    const author = c.author || 'unknown';
+                    const initial = author.charAt(0).toUpperCase();
+                    const date = (c.createdAt || '').split('T')[0];
+                    html += `<div class="gh-comment-item">
+                        <div class="gh-comment-header">
+                            <span class="gh-avatar">${initial}</span>
+                            <strong class="gh-author">${esc(author)}</strong>
+                            <span class="gh-time">${date}</span>
+                        </div>
+                        <div class="gh-comment-body">${renderMarkdown(c.body)}</div>
+                    </div>`;
+                });
+
+                html += '</div></div></div>';
+            });
+
+            document.getElementById('comments-list').innerHTML = html;
+        }
+
+        // Track last data hash for change detection
+        let lastDataHash = '';
+
+        function hashData(data) {
+            return JSON.stringify(data);
+        }
+
+        function renderAll(data) {
+            document.getElementById('project-name').textContent = data.project || 'Dashboard';
+            // Set avatar if user is available
+            const avatar = document.getElementById('user-avatar');
+            if (data.user) {
+                avatar.src = `https://github.com/${data.user}.png?size=64`;
+                avatar.style.display = 'block';
+            }
+            renderMeta(data);
+            renderPRStack(data.prStack, data.branch);
+            renderStats(data.stats);
+            renderFiles(data.files, data.commentCounts || {});
+            renderComments(data.comments);
+            document.getElementById('updated').textContent = 'Updated: ' + (data.updated || 'unknown');
+        }
+
+        // INJECT_DATA_HERE
+
+        // Load and render data
+        async function loadData() {
+            try {
+                // Use embedded data if available, otherwise try to fetch
+                let data;
+                if (window.DASHBOARD_DATA) {
+                    data = window.DASHBOARD_DATA;
+                } else {
+                    const params = new URLSearchParams(window.location.search);
+                    const dataFile = params.get('data') || window.location.href.replace('.html', '.json');
+                    const response = await fetch(dataFile + '?t=' + Date.now());
+                    if (!response.ok) throw new Error('Data not found');
+                    data = await response.json();
+                }
+
+                lastDataHash = hashData(data);
+                renderAll(data);
+
+                // Restore tab
+                const saved = localStorage.getItem('activeTab');
+                if (saved) switchTab(saved);
+
+            } catch (e) {
+                document.getElementById('project-name').textContent = 'Error loading data';
+                console.error(e);
+            }
+        }
+
+        async function checkForUpdates() {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const dataFile = params.get('data') || window.location.href.replace('.html', '.json');
+                const response = await fetch(dataFile + '?t=' + Date.now());
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const newHash = hashData(data);
+
+                if (newHash !== lastDataHash) {
+                    lastDataHash = newHash;
+                    renderAll(data);
+                }
+            } catch (e) {
+                console.error('Update check failed:', e);
+            }
+        }
+
+        // Initial load
+        loadData().then(() => {
+            // Start polling every 3 seconds
+            setInterval(checkForUpdates, 3000);
+        });
+    </script>
+</body>
+</html>
