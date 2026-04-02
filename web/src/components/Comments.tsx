@@ -25,6 +25,11 @@ export function Comments({ comments, localComments }: CommentsProps) {
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const [showLocal, setShowLocal] = useState(true);
   const [showGithub, setShowGithub] = useState(true);
+  const [newComment, setNewComment] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Group local comments by target for initial collapsed state
+  const getLocalThreadKey = (lc: LocalComment) => lc.target || `file:${lc.path}:${lc.line}`;
 
   // Start with resolved threads collapsed
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
@@ -32,8 +37,15 @@ export function Comments({ comments, localComments }: CommentsProps) {
     comments.forEach((thread, idx) => {
       if (thread.isResolved) initial.add(`gh-${idx}`);
     });
+    // Group and check if all comments in thread are resolved
+    const localByKey: Record<string, LocalComment[]> = {};
     localComments.forEach((lc) => {
-      if (lc.resolved) initial.add(`local-${lc.id}`);
+      const key = getLocalThreadKey(lc);
+      if (!localByKey[key]) localByKey[key] = [];
+      localByKey[key].push(lc);
+    });
+    Object.entries(localByKey).forEach(([key, thread]) => {
+      if (thread.every(c => c.resolved)) initial.add(`local-${key}`);
     });
     return initial;
   });
@@ -59,6 +71,34 @@ export function Comments({ comments, localComments }: CommentsProps) {
       });
     } catch (e) {
       alert('Failed to delete comment');
+    }
+  };
+
+  const submitComment = async () => {
+    if (!newComment.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await fetch('/api/local-comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target: 'general',
+          body: newComment.trim(),
+          author: 'human',
+        }),
+      });
+      setNewComment('');
+    } catch (e) {
+      alert('Failed to post comment');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      submitComment();
     }
   };
 
@@ -127,15 +167,33 @@ export function Comments({ comments, localComments }: CommentsProps) {
     return true;
   });
 
-  const filteredLocalComments = localComments.filter(lc => {
+  // Group local comments by target (file:path:line or other target)
+  const localThreads = localComments.reduce((acc, lc) => {
+    const key = lc.target || `file:${lc.path}:${lc.line}`;
+    if (!acc[key]) {
+      acc[key] = [];
+    }
+    acc[key].push(lc);
+    return acc;
+  }, {} as Record<string, LocalComment[]>);
+
+  // Filter local threads
+  const filteredLocalThreads = Object.entries(localThreads).filter(([, thread]) => {
     if (!showLocal) return false;
-    if (filter === 'open') return !lc.resolved;
-    if (filter === 'resolved') return lc.resolved;
+    // A thread is resolved if all comments are resolved
+    const isResolved = thread.every(c => c.resolved);
+    if (filter === 'open') return !isResolved;
+    if (filter === 'resolved') return isResolved;
     return true;
   });
 
-  const totalOpen = comments.filter(t => !t.isResolved).length + localComments.filter(l => !l.resolved).length;
-  const totalResolved = comments.filter(t => t.isResolved).length + localComments.filter(l => l.resolved).length;
+  // Count threads, not individual comments
+  const localThreadCount = Object.keys(localThreads).length;
+  const localOpenThreads = Object.values(localThreads).filter(thread => !thread.every(c => c.resolved)).length;
+  const localResolvedThreads = Object.values(localThreads).filter(thread => thread.every(c => c.resolved)).length;
+
+  const totalOpen = comments.filter(t => !t.isResolved).length + localOpenThreads;
+  const totalResolved = comments.filter(t => t.isResolved).length + localResolvedThreads;
 
   return (
     <div className="comments">
@@ -146,7 +204,7 @@ export function Comments({ comments, localComments }: CommentsProps) {
             className={`filter-tab ${filter === 'all' ? 'active' : ''}`}
             onClick={() => setFilter('all')}
           >
-            All ({comments.length + localComments.length})
+            All ({comments.length + localThreadCount})
           </button>
           <button
             className={`filter-tab ${filter === 'open' ? 'active' : ''}`}
@@ -173,53 +231,67 @@ export function Comments({ comments, localComments }: CommentsProps) {
         </div>
       </div>
 
-      {filteredGhComments.length === 0 && filteredLocalComments.length === 0 && (
+      {filteredGhComments.length === 0 && filteredLocalThreads.length === 0 && (
         <div className="no-comments">No comments match filters</div>
       )}
 
-      {/* Local comments */}
-      {filteredLocalComments.map((lc) => (
-        <div key={lc.id} className={`comment-thread local ${lc.resolved ? 'resolved' : ''}`}>
-          <div
-            className="thread-header"
-            onClick={() => toggleThread(`local-${lc.id}`)}
-          >
-            <span className="thread-icon">
-              {collapsed.has(`local-${lc.id}`) ? '▶' : '▼'}
-            </span>
-            <span className="thread-source local">Local</span>
-            <span className="thread-path">{lc.target || lc.path || 'General'}</span>
-            {lc.resolved && (
-              <span className="thread-status resolved">Resolved</span>
-            )}
-          </div>
-          <div className={`thread-content ${collapsed.has(`local-${lc.id}`) ? 'collapsed' : ''}`}>
-            <div className="comment-item">
-              <div className="comment-header">
-                <span className={`comment-author-badge ${lc.author === 'agent' ? 'agent' : ''}`}>
-                  {lc.author || 'human'}
-                </span>
-                <span className="comment-time">{formatTime(lc.createdAt)}</span>
-              </div>
-              <div className="comment-body">{lc.body}</div>
-            </div>
-            <div className="comment-actions">
-              {lc.resolved ? (
-                <button className="btn-unresolve" onClick={() => resolveLocalComment(lc.id, false)}>
-                  Unresolve
-                </button>
-              ) : (
-                <button className="btn-resolve" onClick={() => resolveLocalComment(lc.id, true)}>
-                  Resolve
-                </button>
+      {/* Local comment threads */}
+      {filteredLocalThreads.map(([threadKey, thread]) => {
+        const isResolved = thread.every(c => c.resolved);
+        const firstComment = thread[0];
+        const displayPath = firstComment.target || firstComment.path || 'General';
+
+        return (
+          <div key={threadKey} className={`comment-thread local ${isResolved ? 'resolved' : ''}`}>
+            <div
+              className="thread-header"
+              onClick={() => toggleThread(`local-${threadKey}`)}
+            >
+              <span className="thread-icon">
+                {collapsed.has(`local-${threadKey}`) ? '▶' : '▼'}
+              </span>
+              <span className="thread-source local">Local</span>
+              <span className="thread-path">{displayPath}</span>
+              {thread.length > 1 && (
+                <span className="thread-count">{thread.length} comments</span>
               )}
-              <button className="btn-delete" onClick={() => deleteLocalComment(lc.id)}>
-                Delete
-              </button>
+              {isResolved && (
+                <span className="thread-status resolved">Resolved</span>
+              )}
+            </div>
+            <div className={`thread-content ${collapsed.has(`local-${threadKey}`) ? 'collapsed' : ''}`}>
+              {thread.map((lc) => (
+                <div key={lc.id} className="comment-item">
+                  <div className="comment-header">
+                    <span className={`comment-author-badge ${lc.author === 'agent' ? 'agent' : ''}`}>
+                      {lc.author || 'human'}
+                    </span>
+                    <span className="comment-time">{formatTime(lc.createdAt)}</span>
+                    {lc.resolved && (
+                      <span className="comment-resolved-badge">Resolved</span>
+                    )}
+                  </div>
+                  <div className="comment-body">{lc.body}</div>
+                  <div className="comment-item-actions">
+                    {lc.resolved ? (
+                      <button className="btn-small btn-unresolve" onClick={() => resolveLocalComment(lc.id, false)}>
+                        Unresolve
+                      </button>
+                    ) : (
+                      <button className="btn-small btn-resolve" onClick={() => resolveLocalComment(lc.id, true)}>
+                        Resolve
+                      </button>
+                    )}
+                    <button className="btn-small btn-delete" onClick={() => deleteLocalComment(lc.id)}>
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* GitHub comments */}
       {filteredGhComments.map((thread, idx) => (
@@ -326,6 +398,28 @@ export function Comments({ comments, localComments }: CommentsProps) {
           </div>
         </div>
       ))}
+
+      {/* Chat input */}
+      <div className="comment-input-container">
+        <textarea
+          className="comment-input"
+          placeholder="Leave a comment..."
+          value={newComment}
+          onChange={(e) => setNewComment(e.target.value)}
+          onKeyDown={handleKeyDown}
+          rows={2}
+        />
+        <div className="comment-input-actions">
+          <span className="comment-input-hint">Cmd+Enter to send</span>
+          <button
+            className="btn-send"
+            onClick={submitComment}
+            disabled={!newComment.trim() || isSubmitting}
+          >
+            {isSubmitting ? 'Sending...' : 'Send'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
