@@ -5,13 +5,12 @@ import { Tabs } from './components/Tabs';
 import { Overview } from './components/Overview';
 import { Files } from './components/Files';
 import { Comments } from './components/Comments';
+import { AgentTabView } from './components/AgentTabView';
 import './styles.css';
-
-type TabId = 'overview' | 'files' | 'comments';
 
 function App() {
   const { data, loading, error } = useData();
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [activeTab, setActiveTab] = useState<string>('overview');
 
   if (loading) {
     return (
@@ -30,7 +29,7 @@ function App() {
   }
 
   // Determine which tabs to show
-  const tabs: { id: TabId; label: string; count?: number; hidden?: boolean }[] = [
+  const baseTabs: { id: string; label: string; count?: number; hidden?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
     {
       id: 'files',
@@ -46,7 +45,14 @@ function App() {
     },
   ];
 
-  const visibleTabs = tabs.filter(t => !t.hidden);
+  // Add agent-created tabs
+  const agentTabs = (data.agentTabs || []).map(tab => ({
+    id: tab.id,
+    label: tab.title,
+  }));
+
+  const allTabs = [...baseTabs.filter(t => !t.hidden), ...agentTabs];
+  const visibleTabs = allTabs;
 
   return (
     <div className="app">
@@ -60,7 +66,7 @@ function App() {
       <Tabs
         tabs={visibleTabs}
         activeTab={activeTab}
-        onTabChange={(id) => setActiveTab(id as TabId)}
+        onTabChange={(id) => setActiveTab(id)}
       />
 
       <main className="content">
@@ -76,6 +82,11 @@ function App() {
         )}
         {activeTab === 'comments' && (
           <Comments comments={data.comments} />
+        )}
+        {activeTab.startsWith('agent-') && (
+          <AgentTabView
+            tab={(data.agentTabs || []).find(t => t.id === activeTab)}
+          />
         )}
       </main>
 

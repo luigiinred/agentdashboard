@@ -119,6 +119,44 @@ async function githubREST(endpoint) {
   }
 }
 
+// Agent tabs directory
+const AGENT_TABS_DIR = '.sessiondashboard/tabs';
+
+// Read agent-created tabs from .sessiondashboard/tabs/
+function readAgentTabs() {
+  const tabsDir = path.join(process.cwd(), AGENT_TABS_DIR);
+  const tabs = [];
+
+  if (!fs.existsSync(tabsDir)) {
+    return tabs;
+  }
+
+  try {
+    const files = fs.readdirSync(tabsDir);
+    for (const file of files) {
+      if (file.endsWith('.html')) {
+        const filePath = path.join(tabsDir, file);
+        const content = fs.readFileSync(filePath, 'utf8');
+        const name = path.basename(file, '.html');
+        // Convert filename to title (e.g., "my-tab" -> "My Tab")
+        const title = name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        tabs.push({
+          id: `agent-${name}`,
+          name,
+          title,
+          content,
+          file: filePath,
+          modified: fs.statSync(filePath).mtime.toISOString(),
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Error reading agent tabs:', err.message);
+  }
+
+  return tabs;
+}
+
 // Collect all dashboard data
 async function collectData() {
   const data = {
@@ -133,6 +171,7 @@ async function collectData() {
     comments: [],
     commentCounts: {},
     plugins: [],
+    agentTabs: readAgentTabs(),
     updated: new Date().toISOString(),
   };
 
@@ -525,6 +564,30 @@ module.exports = {
         console.log(`[${new Date().toLocaleTimeString()}] Data updated`);
       }
     }, REFRESH_INTERVAL);
+
+    // Watch .sessiondashboard/tabs/ for agent tab changes
+    const tabsDir = path.join(process.cwd(), AGENT_TABS_DIR);
+    if (fs.existsSync(tabsDir)) {
+      fs.watch(tabsDir, { persistent: false }, async (eventType, filename) => {
+        if (filename && filename.endsWith('.html')) {
+          console.log(`[${new Date().toLocaleTimeString()}] Agent tab changed: ${filename}`);
+          currentData = await collectData();
+          broadcastUpdate(currentData);
+        }
+      });
+      console.log(`Watching agent tabs: ${tabsDir}`);
+    } else {
+      // Create the directory if it doesn't exist so agents can add tabs
+      fs.mkdirSync(tabsDir, { recursive: true });
+      fs.watch(tabsDir, { persistent: false }, async (eventType, filename) => {
+        if (filename && filename.endsWith('.html')) {
+          console.log(`[${new Date().toLocaleTimeString()}] Agent tab changed: ${filename}`);
+          currentData = await collectData();
+          broadcastUpdate(currentData);
+        }
+      });
+      console.log(`Created and watching agent tabs: ${tabsDir}`);
+    }
 
     return { server, registerPlugin };
   },

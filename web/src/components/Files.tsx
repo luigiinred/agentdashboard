@@ -59,6 +59,24 @@ function InlineComment({ thread, defaultCollapsed }: InlineCommentProps) {
     return 'just now';
   };
 
+  const renderMarkdown = (text: string) => {
+    let html = text
+      // Remove HTML comments
+      .replace(/<!--[\s\S]*?-->/g, '')
+      // Code blocks
+      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+      // Inline code
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      // Bold
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      // Links
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+      // Line breaks
+      .replace(/\n/g, '<br>');
+
+    return <span dangerouslySetInnerHTML={{ __html: html }} />;
+  };
+
   return (
     <div className={`inline-comment-thread ${thread.isResolved ? 'resolved' : ''}`}>
       <div className="inline-comment-header" onClick={() => setCollapsed(!collapsed)}>
@@ -92,7 +110,7 @@ function InlineComment({ thread, defaultCollapsed }: InlineCommentProps) {
                 <span className="inline-comment-author">{comment.author}</span>
                 <span className="inline-comment-time">{formatTime(comment.createdAt)}</span>
               </div>
-              <div className="inline-comment-text">{comment.body}</div>
+              <div className="inline-comment-text">{renderMarkdown(comment.body)}</div>
             </div>
           ))}
 
@@ -135,8 +153,17 @@ export function Files({ files, comments }: FilesProps) {
   const [newCommentText, setNewCommentText] = useState('');
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // Group comments by file path
+  // Group comments by file path (only unresolved for inline display)
   const commentsByFile = comments.reduce((acc, thread) => {
+    if (!thread.isResolved) {
+      if (!acc[thread.path]) acc[thread.path] = [];
+      acc[thread.path].push(thread);
+    }
+    return acc;
+  }, {} as Record<string, CommentThread[]>);
+
+  // All comments by file for sidebar counts
+  const allCommentsByFile = comments.reduce((acc, thread) => {
     if (!acc[thread.path]) acc[thread.path] = [];
     acc[thread.path].push(thread);
     return acc;
@@ -281,20 +308,20 @@ export function Files({ files, comments }: FilesProps) {
       // In reality, you'd parse the diffHunk to find the exact line
     });
 
-    // Add all comments at the end of the file for now
-    // TODO: Parse diffHunk to position comments at correct lines
+    // Add all unresolved comments at the end of the file
     if (fileComments.length > 0) {
       elements.push(
         <div key="comments-section" className="file-comments-section">
           <div className="file-comments-header">
-            <span>💬 {fileComments.length} comment{fileComments.length > 1 ? 's' : ''}</span>
+            <span>💬 {fileComments.length} unresolved comment{fileComments.length > 1 ? 's' : ''}</span>
           </div>
           {fileComments.map((thread, tidx) => (
-            <InlineComment
-              key={tidx}
-              thread={thread}
-              defaultCollapsed={thread.isResolved}
-            />
+            <div key={tidx} id={`comment-${file.path}-${tidx}`}>
+              <InlineComment
+                thread={thread}
+                defaultCollapsed={false}
+              />
+            </div>
           ))}
         </div>
       );
@@ -318,19 +345,46 @@ export function Files({ files, comments }: FilesProps) {
                 {dir && <div className="sidebar-dir">{dir}</div>}
                 {dirFiles.map((file) => {
                   const fileName = file.path.split('/').pop();
-                  const hasComments = (commentsByFile[file.path]?.length || 0) > 0;
+                  const fileComments = allCommentsByFile[file.path] || [];
+                  const unresolvedCount = fileComments.filter(c => !c.isResolved).length;
                   return (
-                    <button
-                      key={file.path}
-                      className={`sidebar-file ${activeFile === file.path ? 'active' : ''}`}
-                      onClick={() => scrollToFile(file.path)}
-                    >
-                      <span className="sidebar-file-icon">📄</span>
-                      <span className="sidebar-file-name">{fileName}</span>
-                      {hasComments && (
-                        <span className="sidebar-badge">💬 {commentsByFile[file.path].length}</span>
+                    <div key={file.path} className="sidebar-file-group">
+                      <button
+                        className={`sidebar-file ${activeFile === file.path ? 'active' : ''}`}
+                        onClick={() => scrollToFile(file.path)}
+                      >
+                        <span className="sidebar-file-icon">📄</span>
+                        <span className="sidebar-file-name">{fileName}</span>
+                        {unresolvedCount > 0 && (
+                          <span className="sidebar-badge">{unresolvedCount}</span>
+                        )}
+                      </button>
+                      {fileComments.length > 0 && (
+                        <div className="sidebar-comments">
+                          {fileComments.map((thread, idx) => (
+                            <button
+                              key={idx}
+                              className={`sidebar-comment ${thread.isResolved ? 'resolved' : ''}`}
+                              onClick={() => {
+                                scrollToFile(file.path);
+                                // Small delay to scroll to comment after file is in view
+                                setTimeout(() => {
+                                  const el = document.getElementById(`comment-${file.path}-${idx}`);
+                                  el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }, 100);
+                              }}
+                            >
+                              <span className="sidebar-comment-icon">💬</span>
+                              <span className="sidebar-comment-author">{thread.comments[0]?.author}</span>
+                              <span className="sidebar-comment-preview">
+                                {thread.comments[0]?.body.slice(0, 30)}...
+                              </span>
+                              {thread.isResolved && <span className="sidebar-resolved-badge">✓</span>}
+                            </button>
+                          ))}
+                        </div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>

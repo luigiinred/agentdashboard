@@ -330,6 +330,61 @@ body {
   font-size: 10px;
 }
 
+.sidebar-file-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-comments {
+  margin-left: 20px;
+  border-left: 1px solid var(--border);
+}
+
+.sidebar-comment {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px 4px 12px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-comment:hover {
+  background: var(--bg-tertiary);
+  color: var(--text);
+}
+
+.sidebar-comment.resolved {
+  opacity: 0.6;
+}
+
+.sidebar-comment-icon {
+  font-size: 10px;
+}
+
+.sidebar-comment-author {
+  font-weight: 500;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.sidebar-comment-preview {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-resolved-badge {
+  color: var(--green);
+  font-size: 10px;
+}
+
 /* Main diff area */
 .files-main {
   flex: 1;
@@ -610,9 +665,38 @@ body {
 
 .inline-comment-text {
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--text);
-  white-space: pre-wrap;
+}
+
+.inline-comment-text code {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+.inline-comment-text pre {
+  background: var(--bg-tertiary);
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.inline-comment-text pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.inline-comment-text a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.inline-comment-text a:hover {
+  text-decoration: underline;
 }
 
 .inline-comment-reply {
@@ -905,4 +989,30 @@ body {
   .stats-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Agent Tabs */
+.agent-tab-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-tab-content {
+  flex: 1;
+  overflow: auto;
+}
+
+.agent-tab-meta {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.agent-tab-file {
+  font-family: 'SFMono-Regular', Consolas, monospace;
 }

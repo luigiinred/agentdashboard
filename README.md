@@ -128,6 +128,92 @@ session-dashboard/
 | `POST /api/refresh` | Force data refresh |
 | `GET /events` | SSE stream for live updates |
 
+## Agent Tabs
+
+AI coding agents can create custom dashboard tabs by adding HTML files to `.sessiondashboard/tabs/` in the working directory. The dashboard automatically watches this directory and updates when files change.
+
+### How It Works
+
+1. Create `.sessiondashboard/tabs/` in the repo root (created automatically when dashboard starts)
+2. Add an HTML file: `.sessiondashboard/tabs/my-status.html`
+3. The tab appears automatically with title "My Status" (filename converted to title case)
+4. Edit the HTML file and changes appear live
+
+### File Format
+
+The file should contain valid HTML that will be rendered inside the dashboard. You have access to the dashboard's CSS variables for consistent styling:
+
+```html
+<!-- .sessiondashboard/tabs/build-status.html -->
+<div class="card">
+  <div class="card-header">Build Status</div>
+  <div class="card-content">
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-value additions">Passing</div>
+        <div class="stat-label">Tests</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">42s</div>
+        <div class="stat-label">Duration</div>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+### CSS Variables
+
+Available CSS variables for consistent theming:
+- `--bg`: Primary background (#0d1117)
+- `--bg-secondary`: Secondary background (#161b22)
+- `--bg-tertiary`: Tertiary background (#21262d)
+- `--border`: Border color (#30363d)
+- `--text`: Primary text (#e6edf3)
+- `--text-muted`: Muted text (#8b949e)
+- `--accent`: Accent color (#58a6ff)
+- `--green`: Success color (#3fb950)
+- `--red`: Error color (#f85149)
+- `--purple`: Purple (#a371f7)
+- `--orange`: Warning color (#d29922)
+
+### Use Cases
+
+- Display build/test progress
+- Show agent task status
+- Render diagrams or visualizations
+- Display custom metrics
+- Show logs or output
+
+### Example: Progress Tracker
+
+```html
+<!-- .sessiondashboard/tabs/progress.html -->
+<div class="card">
+  <div class="card-header">Task Progress</div>
+  <div class="card-content">
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="color: var(--green);">&#10003;</span>
+        <span>Parse requirements</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="color: var(--green);">&#10003;</span>
+        <span>Generate code</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="color: var(--accent);">&#9679;</span>
+        <span>Running tests...</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; opacity: 0.5;">
+        <span>&#9675;</span>
+        <span>Create PR</span>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
 ## Extending
 
 ### Adding Plugins

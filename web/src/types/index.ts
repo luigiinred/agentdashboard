@@ -43,6 +43,15 @@ export interface PluginData {
   data: unknown;
 }
 
+export interface AgentTab {
+  id: string;
+  name: string;
+  title: string;
+  content: string;
+  file: string;
+  modified: string;
+}
+
 export interface DashboardData {
   project: string;
   branch: string;
@@ -59,5 +68,6 @@ export interface DashboardData {
   comments: CommentThread[];
   commentCounts: Record<string, number>;
   plugins: PluginData[];
+  agentTabs: AgentTab[];
   updated: string;
 }
