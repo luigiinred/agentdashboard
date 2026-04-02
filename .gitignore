@@ -6,5 +6,10 @@
 *.swo
 *~
 
+# Node
+node_modules/
+web/node_modules/
+web/dist/
+
 # Generated session files (stored in ~/.claude/sessions/)
 *.json
