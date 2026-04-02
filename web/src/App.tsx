@@ -71,6 +71,7 @@ function App() {
           <Files
             files={data.files}
             commentCounts={data.commentCounts}
+            comments={data.comments}
           />
         )}
         {activeTab === 'comments' && (

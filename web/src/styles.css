@@ -477,6 +477,253 @@ body {
   color: var(--accent);
 }
 
+/* Add comment button on lines */
+.add-comment-btn {
+  opacity: 0;
+  position: absolute;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: opacity 0.15s;
+}
+
+.diff-line {
+  position: relative;
+}
+
+.diff-line:hover .add-comment-btn {
+  opacity: 1;
+}
+
+/* Inline comment styles */
+.inline-comment-thread {
+  margin: 8px 50px 8px 70px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+.inline-comment-thread.resolved {
+  opacity: 0.7;
+}
+
+.inline-comment-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.inline-comment-header:hover {
+  background: #2d333b;
+}
+
+.collapse-icon {
+  color: var(--text-muted);
+  font-size: 10px;
+  width: 12px;
+}
+
+.inline-comment-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+.inline-comment-author {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.inline-comment-preview {
+  flex: 1;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.inline-comment-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.reply-count {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.status-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.status-badge.resolved {
+  background: rgba(163, 113, 247, 0.2);
+  color: var(--purple);
+}
+
+.status-badge.outdated {
+  background: rgba(210, 153, 34, 0.2);
+  color: var(--orange);
+}
+
+.inline-comment-body {
+  border-top: 1px solid var(--border);
+}
+
+.inline-comment-item {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.inline-comment-item:first-child {
+  border-top: none;
+}
+
+.inline-comment-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.inline-comment-time {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.inline-comment-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.inline-comment-reply {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.btn-reply {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.btn-reply:hover {
+  background: var(--bg-tertiary);
+}
+
+.reply-form textarea,
+.inline-comment-form textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 6px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.reply-form textarea:focus,
+.inline-comment-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.reply-actions,
+.inline-comment-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.btn-cancel {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.btn-cancel:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.btn-submit {
+  padding: 6px 12px;
+  border: none;
+  background: var(--green);
+  color: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.btn-submit:hover {
+  background: #2ea043;
+}
+
+.btn-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Inline comment form */
+.inline-comment-form {
+  margin: 8px 50px 8px 70px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+/* File comments section */
+.file-comments-section {
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.file-comments-header {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.file-comment-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: auto;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .files-github-layout {
