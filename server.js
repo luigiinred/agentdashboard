@@ -3,8 +3,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
-const url = require('url');
+const { execSync } = require('child_process');
 
 // Configuration
 const PORT = process.env.PORT || 3456;
@@ -14,6 +13,8 @@ const REFRESH_INTERVAL = 5000; // 5 seconds
 let currentData = null;
 let clients = []; // SSE clients for live updates
 let plugins = [];
+let ghToken = null;
+let repoInfo = null;
 
 // MIME types
 const MIME_TYPES = {
@@ -35,16 +36,6 @@ function isGitRepo() {
   }
 }
 
-// Check if gh CLI is available
-function hasGitHubCLI() {
-  try {
-    execSync('which gh', { stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // Run a command and return output
 function run(cmd, opts = {}) {
   try {
@@ -54,8 +45,82 @@ function run(cmd, opts = {}) {
   }
 }
 
+// Get GitHub auth token from env var or gh CLI
+function getGitHubToken() {
+  // Check env var first
+  if (process.env.GITHUB_TOKEN) {
+    return process.env.GITHUB_TOKEN;
+  }
+
+  // Fall back to gh CLI
+  try {
+    return execSync('gh auth token', { encoding: 'utf8', stdio: 'pipe' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+// Get repo owner/name from git remote
+function getRepoInfo() {
+  try {
+    const remote = run('git remote get-url origin', { fallback: '' });
+    // Parse: git@github.com:owner/repo.git or https://github.com/owner/repo.git
+    const match = remote.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
+    if (match) {
+      return { owner: match[1], name: match[2] };
+    }
+  } catch {}
+  return null;
+}
+
+// GitHub API helper
+async function githubAPI(query, variables = {}) {
+  if (!ghToken) return null;
+
+  try {
+    const response = await fetch('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${ghToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    if (!response.ok) {
+      console.error('GitHub API error:', response.status);
+      return null;
+    }
+
+    const result = await response.json();
+    return result.data;
+  } catch (err) {
+    console.error('GitHub API error:', err.message);
+    return null;
+  }
+}
+
+// GitHub REST API helper
+async function githubREST(endpoint) {
+  if (!ghToken) return null;
+
+  try {
+    const response = await fetch(`https://api.github.com${endpoint}`, {
+      headers: {
+        'Authorization': `Bearer ${ghToken}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+    });
+
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 // Collect all dashboard data
-function collectData() {
+async function collectData() {
   const data = {
     project: path.basename(process.cwd()),
     branch: run('git branch --show-current') || 'detached',
@@ -72,24 +137,47 @@ function collectData() {
   };
 
   // Get GitHub user
-  if (hasGitHubCLI()) {
-    data.user = run('gh api user --jq ".login"', { fallback: null });
+  if (ghToken) {
+    const user = await githubREST('/user');
+    if (user) data.user = user.login;
   }
 
-  // Get PR info
-  const prInfo = run('gh pr view --json url,state,isDraft,baseRefName,number,title 2>/dev/null', { fallback: '' });
-  if (prInfo) {
-    try {
-      const pr = JSON.parse(prInfo);
+  // Get PR info for current branch
+  if (ghToken && repoInfo) {
+    const prQuery = `
+      query($owner: String!, $repo: String!, $head: String!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequests(headRefName: $head, first: 1, states: [OPEN, MERGED]) {
+            nodes {
+              number
+              url
+              title
+              state
+              isDraft
+              baseRefName
+            }
+          }
+        }
+      }
+    `;
+
+    const prResult = await githubAPI(prQuery, {
+      owner: repoInfo.owner,
+      repo: repoInfo.name,
+      head: data.branch,
+    });
+
+    const prNode = prResult?.repository?.pullRequests?.nodes?.[0];
+    if (prNode) {
       data.pr = {
-        number: pr.number,
-        url: pr.url,
-        title: pr.title,
-        status: pr.state,
-        draft: pr.isDraft,
+        number: prNode.number,
+        url: prNode.url,
+        title: prNode.title,
+        status: prNode.state,
+        draft: prNode.isDraft,
       };
-      data.baseBranch = pr.baseRefName || 'main';
-    } catch {}
+      data.baseBranch = prNode.baseRefName || 'main';
+    }
   }
 
   // Get merge base and file stats
@@ -118,74 +206,68 @@ function collectData() {
     });
   }
 
-  // Get PR comments
-  if (data.pr?.number && hasGitHubCLI()) {
-    const repoInfo = run('gh repo view --json owner,name', { fallback: '{}' });
-    try {
-      const { owner, name } = JSON.parse(repoInfo);
-      if (owner && name) {
-        const commentsQuery = `
-          query($owner: String!, $repo: String!, $pr: Int!) {
-            repository(owner: $owner, name: $repo) {
-              pullRequest(number: $pr) {
-                reviewThreads(first: 50) {
+  // Get PR comments using GraphQL
+  if (data.pr?.number && ghToken && repoInfo) {
+    const commentsQuery = `
+      query($owner: String!, $repo: String!, $pr: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $pr) {
+            reviewThreads(first: 50) {
+              nodes {
+                isResolved
+                isOutdated
+                path
+                comments(first: 20) {
                   nodes {
-                    isResolved
-                    isOutdated
-                    path
-                    comments(first: 20) {
-                      nodes {
-                        author { login }
-                        body
-                        createdAt
-                        url
-                        diffHunk
-                      }
-                    }
+                    author { login }
+                    body
+                    createdAt
+                    url
+                    diffHunk
                   }
                 }
               }
             }
           }
-        `;
-        const commentsResult = run(
-          `gh api graphql -f query='${commentsQuery.replace(/\n/g, ' ')}' -f owner="${owner}" -f repo="${name}" -F pr=${data.pr.number}`,
-          { fallback: '' }
-        );
-        if (commentsResult) {
-          const parsed = JSON.parse(commentsResult);
-          const threads = parsed?.data?.repository?.pullRequest?.reviewThreads?.nodes || [];
-          data.comments = threads.map(t => ({
-            isResolved: t.isResolved,
-            isOutdated: t.isOutdated,
-            path: t.path,
-            comments: t.comments.nodes.map(c => ({
-              author: c.author?.login,
-              body: c.body,
-              createdAt: c.createdAt,
-              url: c.url,
-              diffHunk: c.diffHunk,
-            })),
-          }));
-
-          // Comment counts per file
-          threads.forEach(t => {
-            data.commentCounts[t.path] = (data.commentCounts[t.path] || 0) + 1;
-          });
         }
       }
-    } catch {}
+    `;
+
+    const commentsResult = await githubAPI(commentsQuery, {
+      owner: repoInfo.owner,
+      repo: repoInfo.name,
+      pr: data.pr.number,
+    });
+
+    const threads = commentsResult?.repository?.pullRequest?.reviewThreads?.nodes || [];
+    data.comments = threads.map(t => ({
+      isResolved: t.isResolved,
+      isOutdated: t.isOutdated,
+      path: t.path,
+      comments: t.comments.nodes.map(c => ({
+        author: c.author?.login,
+        body: c.body,
+        createdAt: c.createdAt,
+        url: c.url,
+        diffHunk: c.diffHunk,
+      })),
+    }));
+
+    // Comment counts per file
+    threads.forEach(t => {
+      data.commentCounts[t.path] = (data.commentCounts[t.path] || 0) + 1;
+    });
   }
 
   // Get PR stack
-  if (data.pr) {
-    data.prStack = buildPRStack(data.branch, data.baseBranch, data.pr);
+  if (data.pr && ghToken && repoInfo) {
+    data.prStack = await buildPRStack(data.branch, data.baseBranch, data.pr);
   }
 
   // Run plugins
-  plugins.forEach(plugin => {
+  for (const plugin of plugins) {
     try {
-      const pluginData = plugin.collect(data);
+      const pluginData = await plugin.collect(data);
       if (pluginData) {
         data.plugins.push({
           id: plugin.id,
@@ -196,13 +278,13 @@ function collectData() {
     } catch (e) {
       console.error(`Plugin ${plugin.id} error:`, e.message);
     }
-  });
+  }
 
   return data;
 }
 
 // Build PR stack
-function buildPRStack(branch, baseBranch, currentPR) {
+async function buildPRStack(branch, baseBranch, currentPR) {
   const stack = [];
 
   // Add current PR
@@ -216,9 +298,29 @@ function buildPRStack(branch, baseBranch, currentPR) {
   });
 
   // Find child PRs (PRs based on this branch)
-  const childPRs = run(`gh pr list --base "${branch}" --state all --json number,url,title,state`, { fallback: '[]' });
-  try {
-    const children = JSON.parse(childPRs);
+  if (ghToken && repoInfo) {
+    const childQuery = `
+      query($owner: String!, $repo: String!, $base: String!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequests(baseRefName: $base, first: 10, states: [OPEN, MERGED, CLOSED]) {
+            nodes {
+              number
+              url
+              title
+              state
+            }
+          }
+        }
+      }
+    `;
+
+    const childResult = await githubAPI(childQuery, {
+      owner: repoInfo.owner,
+      repo: repoInfo.name,
+      base: branch,
+    });
+
+    const children = childResult?.repository?.pullRequests?.nodes || [];
     children.forEach(child => {
       stack.push({
         number: child.number,
@@ -229,7 +331,7 @@ function buildPRStack(branch, baseBranch, currentPR) {
         isCurrent: false,
       });
     });
-  } catch {}
+  }
 
   return stack;
 }
@@ -285,8 +387,8 @@ function broadcastUpdate(data) {
 }
 
 // HTTP server
-const server = http.createServer((req, res) => {
-  const parsedUrl = url.parse(req.url, true);
+const server = http.createServer(async (req, res) => {
+  const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
   const pathname = parsedUrl.pathname;
 
   // CORS headers
@@ -314,7 +416,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === '/api/refresh') {
-    currentData = collectData();
+    currentData = await collectData();
     broadcastUpdate(currentData);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true }));
@@ -376,7 +478,7 @@ function registerPlugin(plugin) {
 
 // Export for programmatic use
 module.exports = {
-  start: (options = {}) => {
+  start: async (options = {}) => {
     const port = options.port || PORT;
 
     if (!isGitRepo()) {
@@ -384,13 +486,26 @@ module.exports = {
       process.exit(1);
     }
 
-    if (!hasGitHubCLI()) {
-      console.warn('Warning: GitHub CLI (gh) not found. PR features will be disabled.');
+    // Get GitHub token
+    ghToken = getGitHubToken();
+    if (!ghToken) {
+      console.warn('Warning: No GitHub token found.');
+      console.warn('  Set GITHUB_TOKEN env var or run "gh auth login"');
+    } else if (process.env.GITHUB_TOKEN) {
+      console.log('Using GITHUB_TOKEN from environment');
+    } else {
+      console.log('Using token from gh CLI');
+    }
+
+    // Get repo info
+    repoInfo = getRepoInfo();
+    if (!repoInfo) {
+      console.warn('Warning: Could not determine GitHub repo from git remote.');
     }
 
     // Initial data collection
     console.log('Collecting initial data...');
-    currentData = collectData();
+    currentData = await collectData();
 
     // Start server
     server.listen(port, () => {
@@ -402,8 +517,8 @@ module.exports = {
     });
 
     // Periodic refresh
-    setInterval(() => {
-      const newData = collectData();
+    setInterval(async () => {
+      const newData = await collectData();
       if (JSON.stringify(newData) !== JSON.stringify(currentData)) {
         currentData = newData;
         broadcastUpdate(currentData);
