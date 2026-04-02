@@ -1,0 +1,43 @@
+<!--
+  PROGRESS TEMPLATE
+  Copy this file to tabs/ and rename it (e.g., todo.html)
+
+  Status classes: .done (green), .wip (yellow), .next (blue), .blocked (red)
+-->
+<style>
+  .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  .status.done { background: #238636; color: white; }
+  .status.wip { background: #9e6a03; color: white; }
+  .status.next { background: #388bfd; color: white; }
+  .status.blocked { background: #da3633; color: white; }
+  .task { margin: 8px 0; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 6px; }
+  .task-title { font-weight: 600; margin-bottom: 4px; }
+  .task-desc { font-size: 13px; color: #8b949e; }
+  hr { border: none; border-top: 1px solid #30363d; margin: 16px 0; }
+</style>
+
+<h2>Current Focus</h2>
+
+<div class="task">
+  <span class="status wip">Working</span>
+  <div class="task-title">Task name here</div>
+  <div class="task-desc">Brief description of what you're doing</div>
+</div>
+
+<hr>
+
+<h3>Up Next</h3>
+
+<div class="task">
+  <span class="status next">Next</span>
+  <div class="task-title">Next task</div>
+</div>
+
+<hr>
+
+<h3>Completed</h3>
+
+<div class="task">
+  <span class="status done">Done</span>
+  <div class="task-title">Finished task</div>
+</div>

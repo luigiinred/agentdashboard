@@ -5,12 +5,30 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-// Configuration
-const PORT = process.env.PORT || 3456;
-const REFRESH_INTERVAL = 5000; // 5 seconds
+// Load configuration
+function loadConfig() {
+  const defaultConfig = {
+    port: 3456,
+    refreshInterval: 180000,  // 3 minutes (rate limit friendly)
+  };
+  const configPath = path.join(__dirname, 'config.json');
+  if (fs.existsSync(configPath)) {
+    try {
+      return { ...defaultConfig, ...JSON.parse(fs.readFileSync(configPath, 'utf8')) };
+    } catch (e) {
+      console.warn('Failed to load config.json, using defaults');
+    }
+  }
+  return defaultConfig;
+}
+
+const config = loadConfig();
+const PORT = process.env.PORT || config.port;
+const REFRESH_INTERVAL = config.refreshInterval;
 
 // State
 let currentData = null;
+let githubError = null;
 let clients = []; // SSE clients for live updates
 let plugins = [];
 let ghToken = null;
@@ -87,15 +105,35 @@ async function githubAPI(query, variables = {}) {
       body: JSON.stringify({ query, variables }),
     });
 
+    const resetHeader = response.headers.get('x-ratelimit-reset');
+
     if (!response.ok) {
       console.error('GitHub API error:', response.status);
+      if (response.status === 403 || response.status === 429) {
+        const resetTime = resetHeader ? new Date(resetHeader * 1000).toLocaleTimeString() : 'soon';
+        githubError = `GitHub API rate limit exceeded. Resets at ${resetTime}`;
+      }
       return null;
     }
 
     const result = await response.json();
+
+    // Check for GraphQL errors
+    if (result.errors && result.errors.length > 0) {
+      const msg = result.errors[0].message || '';
+      if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('exceeded')) {
+        githubError = `GitHub API: ${msg}`;
+        console.error(githubError);
+        return null;
+      }
+    }
+
+    // Clear error on success
+    githubError = null;
     return result.data;
   } catch (err) {
     console.error('GitHub API error:', err.message);
+    githubError = `GitHub API error: ${err.message}`;
     return null;
   }
 }
@@ -121,6 +159,37 @@ async function githubREST(endpoint) {
 
 // Agent tabs directory
 const AGENT_TABS_DIR = '.sessiondashboard/tabs';
+
+// Local comments file
+const LOCAL_COMMENTS_DIR = '.sessiondashboard/comments';
+const LOCAL_COMMENTS_FILE = '.sessiondashboard/comments/comments.json';
+
+// Read local comments from .sessiondashboard/comments/comments.json
+function readLocalComments() {
+  const commentsPath = path.join(process.cwd(), LOCAL_COMMENTS_FILE);
+  if (!fs.existsSync(commentsPath)) {
+    return [];
+  }
+  try {
+    return JSON.parse(fs.readFileSync(commentsPath, 'utf8'));
+  } catch (err) {
+    console.error('Error reading local comments:', err.message);
+    return [];
+  }
+}
+
+// Write local comments to .sessiondashboard/comments/comments.json
+function writeLocalComments(comments) {
+  const commentsDir = path.join(process.cwd(), LOCAL_COMMENTS_DIR);
+  const commentsPath = path.join(process.cwd(), LOCAL_COMMENTS_FILE);
+
+  // Ensure directory exists
+  if (!fs.existsSync(commentsDir)) {
+    fs.mkdirSync(commentsDir, { recursive: true });
+  }
+
+  fs.writeFileSync(commentsPath, JSON.stringify(comments, null, 2));
+}
 
 // Read agent-created tabs from .sessiondashboard/tabs/
 function readAgentTabs() {
@@ -172,8 +241,36 @@ async function collectData() {
     commentCounts: {},
     plugins: [],
     agentTabs: readAgentTabs(),
+    uncommitted: { staged: [], unstaged: [], untracked: [] },
+    localComments: readLocalComments(),
+    githubError: githubError,
+    refreshInterval: REFRESH_INTERVAL,
     updated: new Date().toISOString(),
   };
+
+  // Get uncommitted changes with diffs
+  const statusOutput = run('git status --porcelain', { fallback: '' });
+  if (statusOutput) {
+    statusOutput.split('\n').filter(Boolean).forEach(line => {
+      const index = line[0];
+      const worktree = line[1];
+      const filePath = line.slice(3);
+
+      if (index === '?' && worktree === '?') {
+        // Untracked file
+        data.uncommitted.untracked.push({ path: filePath, status: 'untracked', diff: '' });
+      } else if (index !== ' ' && index !== '?') {
+        // Staged changes
+        const diff = run(`git diff --cached -- "${filePath}" 2>/dev/null`, { fallback: '' });
+        data.uncommitted.staged.push({ path: filePath, status: index, diff });
+      }
+      if (worktree !== ' ' && worktree !== '?') {
+        // Unstaged changes (working tree)
+        const diff = run(`git diff -- "${filePath}" 2>/dev/null`, { fallback: '' });
+        data.uncommitted.unstaged.push({ path: filePath, status: worktree, diff });
+      }
+    });
+  }
 
   // Get GitHub user
   if (ghToken) {
@@ -194,6 +291,32 @@ async function collectData() {
               state
               isDraft
               baseRefName
+              commits(last: 1) {
+                nodes {
+                  commit {
+                    statusCheckRollup {
+                      state
+                      contexts(first: 50) {
+                        nodes {
+                          ... on CheckRun {
+                            __typename
+                            name
+                            status
+                            conclusion
+                            detailsUrl
+                          }
+                          ... on StatusContext {
+                            __typename
+                            context
+                            state
+                            targetUrl
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -208,12 +331,37 @@ async function collectData() {
 
     const prNode = prResult?.repository?.pullRequests?.nodes?.[0];
     if (prNode) {
+      // Extract CI checks
+      const statusRollup = prNode.commits?.nodes?.[0]?.commit?.statusCheckRollup;
+      const checks = [];
+      if (statusRollup?.contexts?.nodes) {
+        for (const ctx of statusRollup.contexts.nodes) {
+          if (ctx.__typename === 'CheckRun') {
+            checks.push({
+              name: ctx.name,
+              status: ctx.status,
+              conclusion: ctx.conclusion,
+              url: ctx.detailsUrl,
+            });
+          } else if (ctx.__typename === 'StatusContext') {
+            checks.push({
+              name: ctx.context,
+              status: ctx.state === 'PENDING' ? 'IN_PROGRESS' : 'COMPLETED',
+              conclusion: ctx.state === 'SUCCESS' ? 'SUCCESS' : ctx.state === 'FAILURE' ? 'FAILURE' : ctx.state,
+              url: ctx.targetUrl,
+            });
+          }
+        }
+      }
+
       data.pr = {
         number: prNode.number,
         url: prNode.url,
         title: prNode.title,
         status: prNode.state,
         draft: prNode.isDraft,
+        checksStatus: statusRollup?.state || null,
+        checks: checks,
       };
       data.baseBranch = prNode.baseRefName || 'main';
     }
@@ -432,7 +580,7 @@ const server = http.createServer(async (req, res) => {
 
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -455,10 +603,206 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/refresh') {
+    console.log(`[${new Date().toLocaleTimeString()}] Manual refresh requested`);
     currentData = await collectData();
     broadcastUpdate(currentData);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true }));
+    return;
+  }
+
+  // Reply to a PR review comment
+  if (pathname === '/api/reply' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { commentId, body: replyBody } = JSON.parse(body);
+        console.log(`[${new Date().toLocaleTimeString()}] Posting reply to comment ${commentId}`);
+
+        if (!ghToken || !repoInfo || !currentData?.pr?.number) {
+          console.log('  -> Failed: No PR or GitHub token');
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No PR or GitHub token' }));
+          return;
+        }
+
+        const url = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.name}/pulls/${currentData.pr.number}/comments/${commentId}/replies`;
+        console.log(`  -> POST ${url}`);
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${ghToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ body: replyBody }),
+        });
+
+        if (!response.ok) {
+          const err = await response.text();
+          console.log(`  -> Failed: ${response.status} - ${err}`);
+          res.writeHead(response.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err }));
+          return;
+        }
+
+        const result = await response.json();
+        console.log(`  -> Success: Created comment ${result.id}`);
+
+        // Refresh data
+        currentData = await collectData();
+        broadcastUpdate(currentData);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, comment: result }));
+      } catch (err) {
+        console.log(`  -> Error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Get local comments
+  if (pathname === '/api/local-comments' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(readLocalComments()));
+    return;
+  }
+
+  // Add a local comment
+  if (pathname === '/api/local-comments' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        const authorName = data.author || 'human';
+
+        // Support both old format (path/line/type) and new generic format (target)
+        const target = data.target || (data.path ? `file:${data.type || 'branch'}:${data.path}${data.line != null ? ':' + data.line : ''}` : null);
+
+        console.log(`[${new Date().toLocaleTimeString()}] Adding comment by ${authorName} on ${target}`);
+
+        const comments = readLocalComments();
+        const newComment = {
+          id: `local-${Date.now()}`,
+          target: target,
+          // Keep legacy fields for backwards compatibility
+          path: data.path || null,
+          line: data.line ?? null,
+          type: data.type || null,
+          body: data.body,
+          author: authorName,
+          createdAt: new Date().toISOString(),
+        };
+        comments.push(newComment);
+        writeLocalComments(comments);
+
+        // Refresh data
+        currentData = await collectData();
+        broadcastUpdate(currentData);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, comment: newComment }));
+      } catch (err) {
+        console.log(`  -> Error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Resolve/unresolve a local comment
+  if (pathname === '/api/local-comments/resolve' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { id, resolved, author } = JSON.parse(body);
+        console.log(`[${new Date().toLocaleTimeString()}] ${resolved ? 'Resolving' : 'Unresolving'} comment ${id}`);
+
+        const comments = readLocalComments();
+        const comment = comments.find(c => c.id === id);
+        if (comment) {
+          comment.resolved = resolved;
+          comment.resolvedAt = resolved ? new Date().toISOString() : null;
+          comment.resolvedBy = resolved ? (author || 'human') : null;
+          writeLocalComments(comments);
+
+          // Refresh data
+          currentData = await collectData();
+          broadcastUpdate(currentData);
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, comment }));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Comment not found' }));
+        }
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Delete a local comment
+  if (pathname === '/api/local-comments' && req.method === 'DELETE') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { id } = JSON.parse(body);
+        console.log(`[${new Date().toLocaleTimeString()}] Deleting local comment ${id}`);
+
+        const comments = readLocalComments();
+        const filtered = comments.filter(c => c.id !== id);
+        writeLocalComments(filtered);
+
+        // Refresh data
+        currentData = await collectData();
+        broadcastUpdate(currentData);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (err) {
+        console.log(`  -> Error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Open URL in cmux browser (uses cmux open wrapper from PATH)
+  if (pathname === '/api/open-url' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { url } = JSON.parse(body);
+        if (url && url.includes('github.com')) {
+          // Use 'open' which picks up cmux wrapper to open in cmux browser
+          console.log(`[${new Date().toLocaleTimeString()}] Opening URL in cmux: ${url}`);
+          execSync(`open "${url}"`, { stdio: 'pipe' });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } else {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Only GitHub URLs allowed' }));
+        }
+      } catch (err) {
+        console.log(`[${new Date().toLocaleTimeString()}] Open URL error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
     return;
   }
 

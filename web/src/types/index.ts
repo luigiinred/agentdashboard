@@ -1,9 +1,18 @@
+export interface CICheck {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  url: string | null;
+}
+
 export interface PRInfo {
   number: number;
   url: string;
   title: string;
   status: string;
   draft: boolean;
+  checksStatus: string | null;
+  checks: CICheck[];
 }
 
 export interface FileInfo {
@@ -14,6 +23,7 @@ export interface FileInfo {
 }
 
 export interface Comment {
+  id: number;
   author: string;
   body: string;
   createdAt: string;
@@ -52,6 +62,33 @@ export interface AgentTab {
   modified: string;
 }
 
+export interface UncommittedFile {
+  path: string;
+  status: string;
+  diff: string;
+}
+
+export interface UncommittedChanges {
+  staged: UncommittedFile[];
+  unstaged: UncommittedFile[];
+  untracked: UncommittedFile[];
+}
+
+export interface LocalComment {
+  id: string;
+  target: string; // Generic target: "file:type:path:line", "tab:tab-id", "overview", etc.
+  // Legacy fields for file comments
+  path?: string | null;
+  line?: number | null;
+  type?: 'staged' | 'unstaged' | 'untracked' | 'branch' | null;
+  body: string;
+  author: string;
+  resolved?: boolean;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  createdAt: string;
+}
+
 export interface DashboardData {
   project: string;
   branch: string;
@@ -69,5 +106,9 @@ export interface DashboardData {
   commentCounts: Record<string, number>;
   plugins: PluginData[];
   agentTabs: AgentTab[];
+  uncommitted: UncommittedChanges;
+  localComments: LocalComment[];
+  githubError: string | null;
+  refreshInterval: number;
   updated: string;
 }

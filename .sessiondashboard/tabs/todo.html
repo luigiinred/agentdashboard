@@ -1,0 +1,45 @@
+<style>
+  .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  .status.done { background: #238636; color: white; }
+  .status.wip { background: #9e6a03; color: white; }
+  .task { margin: 8px 0; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 6px; }
+  .task-title { font-weight: 600; margin-bottom: 4px; }
+  .task-desc { font-size: 13px; color: #8b949e; }
+  hr { border: none; border-top: 1px solid #30363d; margin: 16px 0; }
+</style>
+
+<h2>Session Progress</h2>
+
+<div class="task">
+  <span class="status done">Done</span>
+  <div class="task-title">Generic comment system</div>
+  <div class="task-desc">Comments can target anything: files, tabs, or custom targets</div>
+</div>
+
+<div class="task">
+  <span class="status done">Done</span>
+  <div class="task-title">Resolve comments</div>
+  <div class="task-desc">POST to /api/local-comments/resolve with {id, resolved: true}</div>
+</div>
+
+<div class="task">
+  <span class="status done">Done</span>
+  <div class="task-title">Comments tab always visible</div>
+  <div class="task-desc">Shows both GitHub PR comments and local comments</div>
+</div>
+
+<div class="task">
+  <span class="status done">Done</span>
+  <div class="task-title">Comment filters</div>
+  <div class="task-desc">Filter by All/Open/Resolved, toggle GitHub/Local visibility</div>
+</div>
+
+<hr>
+
+<h3>Comment Targets</h3>
+<ul style="font-size: 13px; color: #8b949e;">
+  <li><code>file:branch:path/to/file:42</code> - File line comment</li>
+  <li><code>tab:agent-todo</code> - Comment on a tab</li>
+  <li><code>overview</code> - General comment</li>
+  <li>Any custom string works</li>
+</ul>

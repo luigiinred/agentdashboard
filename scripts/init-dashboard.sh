@@ -1,34 +1,40 @@
 #!/bin/bash
-# Initialize session dashboard in cmux
+# Initialize session dashboard in cmux using agentdashboard
 
 # Only run if in cmux
 [ -z "$CMUX_WORKSPACE_ID" ] && exit 0
 
-# Use predictable path based on project + branch
-PROJECT_NAME=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-BRANCH_DISPLAY=$(git branch --show-current 2>/dev/null || echo "no-branch")
-BRANCH_SAFE=$(echo "$BRANCH_DISPLAY" | tr '/' '-')
-SESSION_DIR="$HOME/.claude/sessions"
-SKILL_DIR="$HOME/.claude/skills/session-dashboard"
-mkdir -p "$SESSION_DIR"
+# Check if agentdashboard is available
+if ! command -v agentdashboard &> /dev/null; then
+    echo "agentdashboard not found - install with: npm install -g agentdashboard"
+    exit 1
+fi
 
-HTML_FILE="$SESSION_DIR/${PROJECT_NAME}-${BRANCH_SAFE}.html"
-DATA_FILE="$SESSION_DIR/${PROJECT_NAME}-${BRANCH_SAFE}.json"
+REPO_PATH="$(pwd)"
 
-# Copy static HTML template if needed
-cp "$SKILL_DIR/dashboard.html" "$HTML_FILE"
+# Create a new split pane on the right and capture the new surface/pane IDs
+SPLIT_OUTPUT=$(cmux new-split right 2>/dev/null)
+NEW_SURFACE=$(echo "$SPLIT_OUTPUT" | grep -o 'surface:[0-9]*' | head -1)
+NEW_PANE=$(echo "$SPLIT_OUTPUT" | grep -o 'pane:[0-9]*' | head -1)
 
-# Generate initial data
-"$SKILL_DIR/scripts/update-data.sh" > /dev/null 2>&1 &
+if [ -z "$NEW_SURFACE" ]; then
+    echo "Failed to create split"
+    exit 1
+fi
 
-# Check if dashboard is already open
-ALREADY_OPEN=$(cmux tree 2>/dev/null | grep -c "\[browser\]" || true)
+sleep 0.3
 
-if [ "$ALREADY_OPEN" -eq 0 ]; then
-    # Open in cmux browser
-    cmux new-split right 2>/dev/null
-    sleep 0.3
-    cmux browser open "file://$HTML_FILE?data=file://$DATA_FILE" 2>/dev/null
+# Run agentdashboard in the new split's terminal
+cmux send --surface "$NEW_SURFACE" "agentdashboard \"$REPO_PATH\"" 2>/dev/null
+cmux send-key --surface "$NEW_SURFACE" Enter 2>/dev/null
+
+# Wait for server to start and read the URL from terminal output
+sleep 2
+DASHBOARD_URL=$(cmux read-screen --surface "$NEW_SURFACE" 2>/dev/null | grep -o 'http://localhost:[0-9]*' | head -1)
+
+if [ -n "$DASHBOARD_URL" ]; then
+    # Open browser tab in same pane
+    cmux new-surface --type browser --pane "$NEW_PANE" --url "$DASHBOARD_URL" 2>/dev/null
 fi
 
 echo "OK"

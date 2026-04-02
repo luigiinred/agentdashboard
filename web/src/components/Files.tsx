@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import type { FileInfo, CommentThread } from '../types';
+import type { FileInfo, CommentThread, UncommittedChanges, LocalComment } from '../types';
 
 interface FilesProps {
   files: FileInfo[];
   commentCounts: Record<string, number>;
   comments: CommentThread[];
+  uncommitted?: UncommittedChanges;
+  localComments?: LocalComment[];
   onAddComment?: (path: string, line: number, body: string) => Promise<void>;
 }
 
@@ -38,6 +40,66 @@ const diffStyle: Record<string, React.CSSProperties> = {
   },
 };
 
+// Memoized diff line to prevent re-renders during typing
+const MemoizedDiffLine = React.memo(function DiffLine({
+  line,
+  idx,
+  language,
+}: {
+  line: string;
+  idx: number;
+  language: string;
+}) {
+  let lineClass = '';
+  let prefix = ' ';
+  let content = line;
+
+  if (line.startsWith('+++') || line.startsWith('---')) {
+    lineClass = 'meta';
+  } else if (line.startsWith('+') && !line.startsWith('+++')) {
+    lineClass = 'add';
+    prefix = '+';
+    content = line.slice(1);
+  } else if (line.startsWith('-') && !line.startsWith('---')) {
+    lineClass = 'del';
+    prefix = '-';
+    content = line.slice(1);
+  } else if (line.startsWith('@@')) {
+    lineClass = 'hunk';
+  } else if (line.startsWith(' ')) {
+    content = line.slice(1);
+  }
+
+  return (
+    <div className={`diff-line ${lineClass}`} data-line-idx={idx}>
+      <span className="diff-line-num">{idx + 1}</span>
+      <span className="diff-line-prefix">{prefix}</span>
+      <span className="diff-line-code">
+        {lineClass === 'hunk' || lineClass === 'meta' ? (
+          <span className="hunk-text">{content}</span>
+        ) : (
+          <SyntaxHighlighter
+            language={language}
+            style={diffStyle}
+            customStyle={{ display: 'inline', padding: 0, margin: 0, background: 'transparent' }}
+            codeTagProps={{ style: { display: 'inline', background: 'transparent' } }}
+            PreTag="span"
+          >
+            {content || ' '}
+          </SyntaxHighlighter>
+        )}
+      </span>
+      <button
+        className="add-comment-btn"
+        data-line={idx}
+        title="Add comment"
+      >
+        +
+      </button>
+    </div>
+  );
+});
+
 interface InlineCommentProps {
   thread: CommentThread;
   defaultCollapsed: boolean;
@@ -47,6 +109,33 @@ function InlineComment({ thread, defaultCollapsed }: InlineCommentProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submitReply = async () => {
+    if (!replyText.trim() || !thread.comments[0]?.id) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          commentId: thread.comments[0].id,
+          body: replyText,
+        }),
+      });
+      if (res.ok) {
+        setReplyText('');
+        setReplying(false);
+      } else {
+        const err = await res.json();
+        alert('Failed to post reply: ' + (err.error || 'Unknown error'));
+      }
+    } catch (e) {
+      alert('Failed to post reply');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -65,14 +154,28 @@ function InlineComment({ thread, defaultCollapsed }: InlineCommentProps) {
       .replace(/<!--[\s\S]*?-->/g, '')
       // Code blocks
       .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+      // Headers (must be before line breaks)
+      .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+      .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+      .replace(/^# (.+)$/gm, '<h2>$1</h2>')
       // Inline code
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       // Bold
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      // Italic
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
       // Links
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-      // Line breaks
+      // Double newlines = paragraph break
+      .replace(/\n\n+/g, '</p><p>')
+      // Single newlines after headers/pre = nothing
+      .replace(/(<\/h[234]>|<\/pre>)\n/g, '$1')
+      // Other single newlines = line break
       .replace(/\n/g, '<br>');
+
+    if (html.includes('</p><p>')) {
+      html = '<p>' + html + '</p>';
+    }
 
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
@@ -128,15 +231,29 @@ function InlineComment({ thread, defaultCollapsed }: InlineCommentProps) {
                     <button className="btn-cancel" onClick={() => { setReplying(false); setReplyText(''); }}>
                       Cancel
                     </button>
-                    <button className="btn-submit" disabled={!replyText.trim()}>
-                      Reply
+                    <button
+                      className="btn-submit"
+                      disabled={!replyText.trim() || submitting}
+                      onClick={submitReply}
+                    >
+                      {submitting ? 'Posting...' : 'Reply'}
                     </button>
                   </div>
                 </div>
               ) : (
-                <button className="btn-reply" onClick={() => setReplying(true)}>
-                  Reply
-                </button>
+                <>
+                  <button className="btn-reply" onClick={() => setReplying(true)}>
+                    Reply
+                  </button>
+                  <a
+                    href={thread.comments[0]?.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-github-link"
+                  >
+                    Open on GitHub
+                  </a>
+                </>
               )}
             </div>
           )}
@@ -146,12 +263,64 @@ function InlineComment({ thread, defaultCollapsed }: InlineCommentProps) {
   );
 }
 
-export function Files({ files, comments }: FilesProps) {
+export function Files({ files, comments, uncommitted, localComments = [] }: FilesProps) {
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [activeFile, setActiveFile] = useState<string | null>(null);
-  const [addingComment, setAddingComment] = useState<{ path: string; line: number } | null>(null);
-  const [newCommentText, setNewCommentText] = useState('');
+  const [addingLocalComment, setAddingLocalComment] = useState<{ path: string; type: string; line?: number } | null>(null);
+  const [localCommentText, setLocalCommentText] = useState('');
+  const [submittingLocal, setSubmittingLocal] = useState(false);
   const fileRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Group local comments by file path
+  const localCommentsByFile = localComments.reduce((acc, comment) => {
+    const key = `${comment.type}-${comment.path}`;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(comment);
+    return acc;
+  }, {} as Record<string, LocalComment[]>);
+
+  // Add a local comment
+  const addLocalComment = async (filePath: string, type: string, line?: number) => {
+    if (!localCommentText.trim()) return;
+    setSubmittingLocal(true);
+    try {
+      const res = await fetch('/api/local-comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: filePath,
+          line: line ?? null,
+          body: localCommentText,
+          type,
+          author: 'human',
+        }),
+      });
+      if (res.ok) {
+        setLocalCommentText('');
+        setAddingLocalComment(null);
+      } else {
+        const err = await res.json();
+        alert('Failed to add comment: ' + (err.error || 'Unknown error'));
+      }
+    } catch (e) {
+      alert('Failed to add comment');
+    } finally {
+      setSubmittingLocal(false);
+    }
+  };
+
+  // Delete a local comment
+  const deleteLocalComment = async (id: string) => {
+    try {
+      await fetch('/api/local-comments', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    } catch (e) {
+      alert('Failed to delete comment');
+    }
+  };
 
   // Group comments by file path (only unresolved for inline display)
   const commentsByFile = comments.reduce((acc, thread) => {
@@ -269,7 +438,7 @@ export function Files({ files, comments }: FilesProps) {
           </span>
           <button
             className="add-comment-btn"
-            onClick={() => setAddingComment({ path: file.path, line: idx })}
+            onClick={() => setAddingLocalComment({ path: file.path, type: 'branch', line: idx })}
             title="Add comment"
           >
             +
@@ -278,12 +447,12 @@ export function Files({ files, comments }: FilesProps) {
       );
 
       // Add inline comment form if user is adding a comment on this line
-      if (addingComment?.path === file.path && addingComment?.line === idx) {
+      if (addingLocalComment?.path === file.path && addingLocalComment?.type === 'branch' && addingLocalComment?.line === idx) {
         elements.push(
           <div key={`add-comment-${idx}`} className="inline-comment-form">
             <textarea
-              value={newCommentText}
-              onChange={(e) => setNewCommentText(e.target.value)}
+              value={localCommentText}
+              onChange={(e) => setLocalCommentText(e.target.value)}
               placeholder="Write a comment..."
               rows={3}
               autoFocus
@@ -291,17 +460,48 @@ export function Files({ files, comments }: FilesProps) {
             <div className="inline-comment-form-actions">
               <button
                 className="btn-cancel"
-                onClick={() => { setAddingComment(null); setNewCommentText(''); }}
+                onClick={() => { setAddingLocalComment(null); setLocalCommentText(''); }}
               >
                 Cancel
               </button>
-              <button className="btn-submit" disabled={!newCommentText.trim()}>
-                Add comment
+              <button
+                className="btn-submit"
+                disabled={!localCommentText.trim() || submittingLocal}
+                onClick={() => addLocalComment(file.path, 'branch', idx)}
+              >
+                {submittingLocal ? 'Adding...' : 'Save Local'}
               </button>
             </div>
           </div>
         );
       }
+
+      // Show any local comments attached to this line
+      const key = `branch-${file.path}`;
+      const fileLocalComments = localCommentsByFile[key] || [];
+      const lineLocalComments = fileLocalComments.filter(c => c.line === idx);
+      lineLocalComments.forEach((lc, cidx) => {
+        elements.push(
+          <div key={`local-comment-${idx}-${cidx}`} className="inline-local-comment">
+            <div className="inline-local-comment-header">
+              <span className={`inline-local-comment-badge ${lc.author === 'agent' ? 'agent' : ''}`}>
+                {lc.author || 'human'}
+              </span>
+              <span className="inline-local-comment-time">
+                {new Date(lc.createdAt).toLocaleString()}
+              </span>
+              <button
+                className="local-comment-delete"
+                onClick={() => deleteLocalComment(lc.id)}
+                title="Delete comment"
+              >
+                ×
+              </button>
+            </div>
+            <div className="inline-local-comment-body">{lc.body}</div>
+          </div>
+        );
+      });
 
       // Check if there are comments that should appear after this line
       // (simplified: show all comments for this file after line 5 for demo)
@@ -330,14 +530,196 @@ export function Files({ files, comments }: FilesProps) {
     return <div className="diff-content-highlighted">{elements}</div>;
   };
 
+  // Diff renderer with local comments for uncommitted changes
+  const renderDiffWithLocalComments = (diff: string, language: string, filePath: string, fileType: string) => {
+    const lines = diff.split('\n');
+    const key = `${fileType}-${filePath}`;
+    const fileLocalComments = localCommentsByFile[key] || [];
+    const elements: React.ReactNode[] = [];
+
+    lines.forEach((line, idx) => {
+      // Add the memoized diff line (won't re-render on typing)
+      elements.push(
+        <MemoizedDiffLine
+          key={`line-${idx}`}
+          line={line}
+          idx={idx}
+          language={language}
+        />
+      );
+
+      // Add inline comment form if user is adding a comment on this line
+      if (addingLocalComment?.path === filePath && addingLocalComment?.type === fileType && addingLocalComment?.line === idx) {
+        elements.push(
+          <div key={`add-comment-${idx}`} className="inline-comment-form">
+            <textarea
+              value={localCommentText}
+              onChange={(e) => setLocalCommentText(e.target.value)}
+              placeholder="Write a comment..."
+              rows={3}
+              autoFocus
+            />
+            <div className="inline-comment-form-actions">
+              <button
+                className="btn-cancel"
+                onClick={() => { setAddingLocalComment(null); setLocalCommentText(''); }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-submit"
+                disabled={!localCommentText.trim() || submittingLocal}
+                onClick={() => addLocalComment(filePath, fileType, idx)}
+              >
+                {submittingLocal ? 'Adding...' : 'Add Comment'}
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      // Show any local comments attached to this line
+      const lineComments = fileLocalComments.filter(c => c.line === idx);
+      lineComments.forEach((lc, cidx) => {
+        elements.push(
+          <div key={`local-comment-${idx}-${cidx}`} className="inline-local-comment">
+            <div className="inline-local-comment-header">
+              <span className={`inline-local-comment-badge ${lc.author === 'agent' ? 'agent' : ''}`}>
+                {lc.author || 'human'}
+              </span>
+              <span className="inline-local-comment-time">
+                {new Date(lc.createdAt).toLocaleString()}
+              </span>
+              <button
+                className="local-comment-delete"
+                onClick={() => deleteLocalComment(lc.id)}
+                title="Delete comment"
+              >
+                ×
+              </button>
+            </div>
+            <div className="inline-local-comment-body">{lc.body}</div>
+          </div>
+        );
+      });
+    });
+
+    const handleClick = (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const btn = target.closest('.add-comment-btn');
+      if (btn) {
+        const lineIdx = parseInt(btn.getAttribute('data-line') || '0', 10);
+        setAddingLocalComment({ path: filePath, type: fileType, line: lineIdx });
+      }
+    };
+
+    return (
+      <div className="diff-content-highlighted" onClick={handleClick}>
+        {elements}
+      </div>
+    );
+  };
+
+  // Check if there's anything to show
+  const hasUncommitted = uncommitted && (
+    uncommitted.staged.length > 0 ||
+    uncommitted.unstaged.length > 0 ||
+    uncommitted.untracked.length > 0
+  );
+  const hasAnyFiles = files.length > 0 || hasUncommitted;
+
+  // Empty state
+  if (!hasAnyFiles) {
+    return (
+      <div className="files-empty-state">
+        <div className="empty-icon">📁</div>
+        <div className="empty-title">No changes</div>
+        <div className="empty-description">
+          Working directory is clean. No uncommitted changes or branch modifications.
+        </div>
+      </div>
+    );
+  }
+
+  // Count total files for sidebar header
+  const uncommittedCount = (uncommitted?.staged.length || 0) +
+    (uncommitted?.unstaged.length || 0) +
+    (uncommitted?.untracked.length || 0);
+  const totalCount = files.length + uncommittedCount;
+
   return (
     <div className="files-github-layout">
       {/* Sidebar - file tree */}
       <aside className="files-sidebar">
         <div className="sidebar-header">
-          <span>{files.length} files changed</span>
+          <span>{totalCount} file{totalCount !== 1 ? 's' : ''}{uncommittedCount > 0 && files.length > 0 ? ` (${uncommittedCount} uncommitted)` : ''}</span>
         </div>
         <nav className="sidebar-nav">
+          {/* Uncommitted changes section */}
+          {uncommitted && (uncommitted.staged.length > 0 || uncommitted.unstaged.length > 0 || uncommitted.untracked.length > 0) && (
+            <div className="sidebar-uncommitted">
+              <div className="sidebar-section-header">Uncommitted</div>
+              {uncommitted.staged.length > 0 && (
+                <div className="sidebar-subsection">
+                  <div className="sidebar-subsection-header">
+                    <span className="status-dot staged"></span>
+                    Staged ({uncommitted.staged.length})
+                  </div>
+                  {uncommitted.staged.map((file, idx) => (
+                    <button
+                      key={idx}
+                      className={`sidebar-uncommitted-file staged ${activeFile === `staged-${file.path}` ? 'active' : ''}`}
+                      onClick={() => scrollToFile(`staged-${file.path}`)}
+                    >
+                      <span className="uncommitted-status">{file.status}</span>
+                      <span className="uncommitted-path">{file.path.split('/').pop()}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {uncommitted.unstaged.length > 0 && (
+                <div className="sidebar-subsection">
+                  <div className="sidebar-subsection-header">
+                    <span className="status-dot unstaged"></span>
+                    Modified ({uncommitted.unstaged.length})
+                  </div>
+                  {uncommitted.unstaged.map((file, idx) => (
+                    <button
+                      key={idx}
+                      className={`sidebar-uncommitted-file unstaged ${activeFile === `unstaged-${file.path}` ? 'active' : ''}`}
+                      onClick={() => scrollToFile(`unstaged-${file.path}`)}
+                    >
+                      <span className="uncommitted-status">{file.status}</span>
+                      <span className="uncommitted-path">{file.path.split('/').pop()}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {uncommitted.untracked.length > 0 && (
+                <div className="sidebar-subsection">
+                  <div className="sidebar-subsection-header">
+                    <span className="status-dot untracked"></span>
+                    Untracked ({uncommitted.untracked.length})
+                  </div>
+                  {uncommitted.untracked.map((file, idx) => (
+                    <button
+                      key={idx}
+                      className={`sidebar-uncommitted-file untracked ${activeFile === `untracked-${file.path}` ? 'active' : ''}`}
+                      onClick={() => scrollToFile(`untracked-${file.path}`)}
+                    >
+                      <span className="uncommitted-status">?</span>
+                      <span className="uncommitted-path">{file.path.split('/').pop()}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Changed files in branch */}
+          {files.length > 0 && (uncommitted?.staged.length || uncommitted?.unstaged.length || uncommitted?.untracked.length) && (
+            <div className="sidebar-section-header">Branch Changes</div>
+          )}
           {Object.entries(groupedFiles)
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([dir, dirFiles]) => (
@@ -394,36 +776,220 @@ export function Files({ files, comments }: FilesProps) {
 
       {/* Main content - all diffs */}
       <main className="files-main">
-        {files.map((file) => {
-          const isCollapsed = collapsedFiles.has(file.path);
-          const language = getLanguage(file.path);
-          const fileCommentCount = commentsByFile[file.path]?.length || 0;
-
-          return (
-            <div
-              key={file.path}
-              ref={(el) => { fileRefs.current[file.path] = el; }}
-              data-path={file.path}
-              className="file-diff-card"
-            >
-              {/* File header */}
-              <div className="file-diff-header" onClick={() => toggleFile(file.path)}>
-                <span className="file-collapse-icon">{isCollapsed ? '▶' : '▼'}</span>
-                <span className="file-diff-path">{file.path}</span>
-                {fileCommentCount > 0 && (
-                  <span className="file-comment-count">💬 {fileCommentCount}</span>
-                )}
-                <span className="file-diff-stats">
-                  <span className="add">+{file.add}</span>
-                  <span className="del">-{file.del}</span>
-                </span>
-              </div>
-
-              {/* Diff content with inline comments */}
-              {!isCollapsed && renderDiffWithComments(file, language)}
+        {/* Unstaged changes section */}
+        {uncommitted && uncommitted.unstaged.length > 0 && (
+          <div className="uncommitted-section">
+            <div className="section-header unstaged">
+              <span className="section-icon">●</span>
+              Unstaged Changes ({uncommitted.unstaged.length} files)
             </div>
-          );
-        })}
+            {uncommitted.unstaged.map((file) => {
+              const key = `unstaged-${file.path}`;
+              const isCollapsed = collapsedFiles.has(key);
+              const language = getLanguage(file.path);
+
+              const fileLocalComments = localCommentsByFile[key] || [];
+
+              return (
+                <div
+                  key={key}
+                  ref={(el) => { fileRefs.current[key] = el; }}
+                  data-path={key}
+                  className="file-diff-card uncommitted-card"
+                >
+                  <div className="file-diff-header" onClick={() => toggleFile(key)}>
+                    <span className="file-collapse-icon">{isCollapsed ? '▶' : '▼'}</span>
+                    <span className="uncommitted-badge unstaged">{file.status}</span>
+                    <span className="file-diff-path">{file.path}</span>
+                    {fileLocalComments.length > 0 && (
+                      <span className="file-comment-count">💬 {fileLocalComments.length}</span>
+                    )}
+                  </div>
+                  {!isCollapsed && file.diff && renderDiffWithLocalComments(file.diff, language, file.path, 'unstaged')}
+                  {!isCollapsed && !file.diff && (
+                    <div className="file-diff-empty">No diff available</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Staged changes section */}
+        {uncommitted && uncommitted.staged.length > 0 && (
+          <div className="uncommitted-section">
+            <div className="section-header staged">
+              <span className="section-icon">✓</span>
+              Staged Changes ({uncommitted.staged.length} files)
+            </div>
+            {uncommitted.staged.map((file) => {
+              const key = `staged-${file.path}`;
+              const isCollapsed = collapsedFiles.has(key);
+              const language = getLanguage(file.path);
+              const fileLocalComments = localCommentsByFile[key] || [];
+
+              return (
+                <div
+                  key={key}
+                  ref={(el) => { fileRefs.current[key] = el; }}
+                  data-path={key}
+                  className="file-diff-card uncommitted-card staged"
+                >
+                  <div className="file-diff-header" onClick={() => toggleFile(key)}>
+                    <span className="file-collapse-icon">{isCollapsed ? '▶' : '▼'}</span>
+                    <span className="uncommitted-badge staged">{file.status}</span>
+                    <span className="file-diff-path">{file.path}</span>
+                    {fileLocalComments.length > 0 && (
+                      <span className="file-comment-count">💬 {fileLocalComments.length}</span>
+                    )}
+                  </div>
+                  {!isCollapsed && file.diff && renderDiffWithLocalComments(file.diff, language, file.path, 'staged')}
+                  {!isCollapsed && !file.diff && (
+                    <div className="file-diff-empty">No diff available</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Untracked files section */}
+        {uncommitted && uncommitted.untracked.length > 0 && (
+          <div className="uncommitted-section">
+            <div className="section-header untracked">
+              <span className="section-icon">?</span>
+              Untracked Files ({uncommitted.untracked.length} files)
+            </div>
+            {uncommitted.untracked.map((file) => {
+              const key = `untracked-${file.path}`;
+              const isCollapsed = collapsedFiles.has(key);
+              const fileLocalComments = localCommentsByFile[key] || [];
+
+              return (
+                <div
+                  key={key}
+                  ref={(el) => { fileRefs.current[key] = el; }}
+                  data-path={key}
+                  className="file-diff-card uncommitted-card untracked"
+                >
+                  <div className="file-diff-header" onClick={() => toggleFile(key)}>
+                    <span className="file-collapse-icon">{isCollapsed ? '▶' : '▼'}</span>
+                    <span className="uncommitted-badge untracked">?</span>
+                    <span className="file-diff-path">{file.path}</span>
+                    {fileLocalComments.length > 0 && (
+                      <span className="file-comment-count">💬 {fileLocalComments.length}</span>
+                    )}
+                  </div>
+                  {!isCollapsed && (
+                    <div className="file-diff-empty">New file (not yet tracked)</div>
+                  )}
+                  {!isCollapsed && (
+                    <div className="local-comments-section">
+                      {fileLocalComments.map((lc) => (
+                        <div key={lc.id} className="local-comment">
+                          <div className="local-comment-header">
+                            <span className="local-comment-time">
+                              {new Date(lc.createdAt).toLocaleString()}
+                            </span>
+                            <button
+                              className="local-comment-delete"
+                              onClick={() => deleteLocalComment(lc.id)}
+                              title="Delete comment"
+                            >
+                              ×
+                            </button>
+                          </div>
+                          <div className="local-comment-body">{lc.body}</div>
+                        </div>
+                      ))}
+                      {addingLocalComment?.path === file.path && addingLocalComment?.type === 'untracked' ? (
+                        <div className="local-comment-form">
+                          <textarea
+                            value={localCommentText}
+                            onChange={(e) => setLocalCommentText(e.target.value)}
+                            placeholder="Add a comment..."
+                            rows={3}
+                            autoFocus
+                          />
+                          <div className="local-comment-form-actions">
+                            <button
+                              className="btn-cancel"
+                              onClick={() => { setAddingLocalComment(null); setLocalCommentText(''); }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              className="btn-submit"
+                              disabled={!localCommentText.trim() || submittingLocal}
+                              onClick={() => addLocalComment(file.path, 'untracked')}
+                            >
+                              {submittingLocal ? 'Adding...' : 'Add Comment'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          className="btn-add-local-comment"
+                          onClick={() => setAddingLocalComment({ path: file.path, type: 'untracked' })}
+                        >
+                          + Add Comment
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Branch changes section */}
+        {files.length > 0 && (
+          <div className="branch-section">
+            {(uncommitted?.unstaged.length || uncommitted?.staged.length || uncommitted?.untracked.length) ? (
+              <div className="section-header branch">
+                <span className="section-icon">⎇</span>
+                Branch Changes ({files.length} files)
+              </div>
+            ) : null}
+            {files.map((file) => {
+              const isCollapsed = collapsedFiles.has(file.path);
+              const language = getLanguage(file.path);
+              const fileCommentCount = commentsByFile[file.path]?.length || 0;
+              const key = `branch-${file.path}`;
+              const fileLocalComments = localCommentsByFile[key] || [];
+              const totalComments = fileCommentCount + fileLocalComments.length;
+
+              return (
+                <div
+                  key={file.path}
+                  ref={(el) => { fileRefs.current[file.path] = el; }}
+                  data-path={file.path}
+                  className="file-diff-card"
+                >
+                  {/* File header */}
+                  <div className="file-diff-header" onClick={() => toggleFile(file.path)}>
+                    <span className="file-collapse-icon">{isCollapsed ? '▶' : '▼'}</span>
+                    <span className="file-diff-path">{file.path}</span>
+                    {totalComments > 0 && (
+                      <span className="file-comment-count">
+                        💬 {totalComments}
+                        {fileLocalComments.length > 0 && <span className="local-badge">({fileLocalComments.length} local)</span>}
+                      </span>
+                    )}
+                    <span className="file-diff-stats">
+                      <span className="add">+{file.add}</span>
+                      <span className="del">-{file.del}</span>
+                    </span>
+                  </div>
+
+                  {/* Diff content with inline comments */}
+                  {!isCollapsed && renderDiffWithComments(file, language)}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </main>
     </div>
   );

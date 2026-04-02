@@ -1,0 +1,37 @@
+<!--
+  NOTES TEMPLATE
+  Copy this file to tabs/ and rename it (e.g., notes.html)
+
+  Good for: decisions, context, blockers, questions
+-->
+<style>
+  .note { margin: 12px 0; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 6px; border-left: 3px solid #388bfd; }
+  .note.decision { border-left-color: #238636; }
+  .note.question { border-left-color: #9e6a03; }
+  .note.blocker { border-left-color: #da3633; }
+  .note-label { font-size: 11px; text-transform: uppercase; color: #8b949e; margin-bottom: 4px; }
+  .note-content { font-size: 14px; }
+  hr { border: none; border-top: 1px solid #30363d; margin: 16px 0; }
+</style>
+
+<h2>Session Notes</h2>
+
+<div class="note decision">
+  <div class="note-label">Decision</div>
+  <div class="note-content">Chose approach X because Y</div>
+</div>
+
+<div class="note question">
+  <div class="note-label">Question</div>
+  <div class="note-content">Need to clarify: how should Z work?</div>
+</div>
+
+<div class="note blocker">
+  <div class="note-label">Blocker</div>
+  <div class="note-content">Waiting on API access</div>
+</div>
+
+<div class="note">
+  <div class="note-label">Context</div>
+  <div class="note-content">General notes about the work</div>
+</div>

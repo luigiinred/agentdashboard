@@ -43,6 +43,8 @@ Options:
   -o, --open         Open browser automatically
   -h, --help         Show this help message
 
+Note: When running inside cmux, the browser opens automatically in a new tab.
+
 Requirements:
   - Path must be a git repository
   - GitHub CLI (gh) for PR features
@@ -104,12 +106,19 @@ async function main() {
   const url = `http://localhost:${port}`;
   console.log(`\n  Dashboard: ${url}\n`);
 
-  // Open browser if requested
-  if (flags.open) {
+  // Auto-open in cmux if running inside cmux session
+  const inCmux = !!process.env.CMUX_SOCKET_PATH;
+  const shouldOpen = flags.open || inCmux;
+
+  if (shouldOpen) {
     setTimeout(() => {
       try {
         if (process.platform === 'darwin') {
+          // cmux's open wrapper intercepts URLs when inside cmux
           execSync(`open "${url}"`, { stdio: 'pipe' });
+          if (inCmux && !flags.open) {
+            console.log('  Opened in cmux browser tab\n');
+          }
         } else if (process.platform === 'linux') {
           execSync(`xdg-open "${url}"`, { stdio: 'pipe' });
         } else if (process.platform === 'win32') {
