@@ -1,156 +1,156 @@
-# Session Dashboard
+# Agent Dashboard
 
 A local web dashboard for monitoring git branches and GitHub pull requests. Designed for AI coding agents to display real-time session data to users.
 
-## What It Does
+## Features
 
-Session Dashboard watches your current git branch and displays:
-
-- **Overview**: Branch name, base branch, PR status, file change statistics
-- **Files**: All changed files with diffs, organized by directory
-- **Comments**: PR review threads with resolved/unresolved status
-
-The dashboard auto-refreshes when data changes, giving you a live view of your work session.
+- **Live Updates**: Server-sent events for real-time data refresh
+- **GitHub-style Diff View**: Syntax-highlighted diffs with collapsible files
+- **PR Comments**: Review threads with resolved/unresolved status
+- **File Navigation**: Sticky sidebar to jump between changed files
+- **Adaptive UI**: Tabs hide when data isn't available
+- **Extensible**: Plugin system for adding custom data sources
 
 ## Requirements
 
-- **Git repository**: Must be run from within a git repo
+- **Node.js 16+**
+- **Git**: Must be run from within a git repo
 - **GitHub CLI (`gh`)**: Required for PR info and review comments
-- **jq**: Required for JSON processing
 
 ```bash
 # Install dependencies (macOS)
-brew install gh jq
+brew install node gh
 
 # Authenticate with GitHub
 gh auth login
 ```
 
+## Installation
+
+```bash
+# Clone the repo
+git clone <repo-url> ~/Developer/session-dashboard
+cd ~/Developer/session-dashboard
+
+# Run install script
+./install.sh
+```
+
+This will:
+1. Check requirements
+2. Build the web UI
+3. Link `agentdashboard` command globally
+4. Link as a Claude Code skill
+
 ## Usage
 
-### Generate Dashboard
-
-From any git repository:
-
 ```bash
-# Generate the dashboard HTML
-session-dashboard/scripts/update-data.sh
+# Current directory
+agentdashboard
 
-# Open the generated dashboard
-open ~/.claude/sessions/PROJECT-BRANCH.html
+# Specific path
+agentdashboard /path/to/repo
+
+# Open browser automatically
+agentdashboard -o
+
+# Specific port
+agentdashboard -p 8080
 ```
 
-The dashboard is generated at `~/.claude/sessions/{project}-{branch}.html`.
-
-### As a Claude Code Skill
-
-Symlink to your skills directory for automatic integration:
-
-```bash
-ln -s ~/Developer/session-dashboard ~/.claude/skills/session-dashboard
-```
+The dashboard will:
+1. Find an available port (starting at 3456)
+2. Print the URL
+3. Watch for changes and push updates via SSE
 
 ## Architecture
 
 ```
 session-dashboard/
-├── dashboard.html          # Main template with rendering logic
-├── scripts/
-│   ├── update-data.sh      # Collects data from git/GitHub, generates HTML
-│   └── init-dashboard.sh   # Initializes dashboard in cmux
-└── SKILL.md                # Claude Code skill definition
+├── bin/cli.js          # CLI entry point
+├── server.js           # Node.js server with SSE
+├── package.json        # Dependencies and scripts
+├── install.sh          # Installation script
+├── web/                # React frontend
+│   ├── src/
+│   │   ├── components/ # React components
+│   │   ├── hooks/      # useData hook for SSE
+│   │   ├── types/      # TypeScript types
+│   │   └── styles.css  # GitHub-dark theme
+│   └── dist/           # Built files (generated)
+└── SKILL.md            # Claude Code skill definition
 ```
 
 ### Data Flow
 
-1. `update-data.sh` runs git commands and GitHub API queries
-2. Data is collected into a JSON structure
-3. JSON is embedded directly into the HTML (avoids CORS issues)
-4. Dashboard JavaScript renders the data into tabs
-5. Polling detects changes and re-renders automatically
+1. Server collects data from git and GitHub CLI
+2. Data is sent to clients via Server-Sent Events
+3. React app renders with syntax highlighting
+4. Changes trigger automatic re-render
 
-### Adaptive Display
+## API Endpoints
 
-The dashboard adapts to available data:
+| Endpoint | Description |
+|----------|-------------|
+| `GET /` | Serve dashboard with embedded data |
+| `GET /api/data` | Get current data as JSON |
+| `POST /api/refresh` | Force data refresh |
+| `GET /events` | SSE stream for live updates |
 
-- **No PR open**: Hides PR-specific sections, shows branch info only
-- **No comments**: Hides comments tab or shows empty state
-- **No changed files**: Shows appropriate empty state
+## Extending
 
-## Extending for AI Agents
+### Adding Plugins
 
-The dashboard is designed to be extended by AI agents that need to show data to users.
+```javascript
+const dashboard = require('session-dashboard/server');
+
+dashboard.registerPlugin({
+  id: 'my-plugin',
+  name: 'My Custom Data',
+  collect: (data) => {
+    // Return custom data to add to the dashboard
+    return { myField: 'value' };
+  }
+});
+
+dashboard.start();
+```
 
 ### Adding Custom Tabs
 
-Agents can add new tabs by:
+1. Add data in your plugin's `collect` function
+2. Create a new React component in `web/src/components/`
+3. Add the tab to `App.tsx`
+4. Rebuild: `npm run build`
 
-1. Adding a tab button to the `.tabs` container
-2. Adding a corresponding `.tab-content` div
-3. Implementing a render function for the tab's data
-
-Example structure for a new tab:
-
-```html
-<!-- Tab button -->
-<div class="tab" data-tab="custom" onclick="switchTab('custom')">Custom</div>
-
-<!-- Tab content -->
-<div id="tab-custom" class="tab-content">
-    <div id="custom-content"></div>
-</div>
-```
-
-```javascript
-function renderCustom(data) {
-    document.getElementById('custom-content').innerHTML = /* ... */;
-}
-```
-
-### Adding Data to the JSON
-
-Extend `update-data.sh` to collect additional data:
+## Development
 
 ```bash
-# Add to the JSON_DATA heredoc
-"customData": {
-    "key": "value"
-}
+# Install dependencies
+npm install
+cd web && npm install
+
+# Run server (uses built files)
+npm start
+
+# Build web UI
+npm run build
 ```
-
-### Use Cases for AI Agents
-
-- **Task Progress**: Show current task list and completion status
-- **Build Status**: Display CI/CD pipeline results
-- **Test Results**: Show test pass/fail counts
-- **Logs**: Stream relevant log output
-- **Metrics**: Display performance or code quality metrics
-
-## Configuration
-
-### Session Directory
-
-Generated dashboards are stored in `~/.claude/sessions/`. This can be changed by modifying `SESSION_DIR` in `update-data.sh`.
-
-### Base Branch Detection
-
-The script automatically detects the base branch from:
-1. The PR's base branch (if a PR exists)
-2. Falls back to `main`
 
 ## Troubleshooting
 
-### "Error loading data"
-- Ensure `gh` CLI is authenticated: `gh auth status`
-- Ensure you're in a git repository
+### "Error: Not a git repository"
+Run from within a git repository.
 
-### Empty file list
-- Check that your branch has commits ahead of the base branch
-- Verify the base branch exists: `git branch -a | grep main`
+### "GitHub CLI not found"
+Install with `brew install gh` and authenticate with `gh auth login`.
 
 ### Comments not showing
-- Requires an open PR with review comments
-- Ensure `gh` has access to the repository
+- Ensure PR exists and has review comments
+- Check `gh auth status` for authentication
+
+### Port in use
+The CLI will automatically find an available port. Or specify one with `-p`.
 
 ## License
 
