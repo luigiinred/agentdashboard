@@ -257,8 +257,20 @@ async function collectData() {
       const filePath = line.slice(3);
 
       if (index === '?' && worktree === '?') {
-        // Untracked file
-        data.uncommitted.untracked.push({ path: filePath, status: 'untracked', diff: '' });
+        // Untracked file - generate diff showing all lines as additions
+        let diff = '';
+        try {
+          const fullPath = path.join(process.cwd(), filePath);
+          const content = fs.readFileSync(fullPath, 'utf8');
+          // Format as unified diff with all lines as additions
+          const lines = content.split('\n');
+          diff = `--- /dev/null\n+++ b/${filePath}\n@@ -0,0 +1,${lines.length} @@\n`;
+          diff += lines.map(line => '+' + line).join('\n');
+        } catch (err) {
+          // Binary file or read error
+          diff = `Binary file or unreadable: ${filePath}`;
+        }
+        data.uncommitted.untracked.push({ path: filePath, status: 'untracked', diff });
       } else if (index !== ' ' && index !== '?') {
         // Staged changes
         const diff = run(`git diff --cached -- "${filePath}" 2>/dev/null`, { fallback: '' });
