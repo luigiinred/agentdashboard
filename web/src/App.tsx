@@ -11,17 +11,7 @@ import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import './styles.css';
 
-// Detect if we're in cmux browser (not a standard browser like Chrome/Safari/Firefox)
-function isInCmuxBrowser(): boolean {
-  const ua = navigator.userAgent.toLowerCase();
-  // cmux browser likely uses a WebKit/Chromium base but won't have Chrome/Safari/Firefox identifiers
-  // or check for specific cmux indicators
-  const isStandardBrowser = ua.includes('chrome') || ua.includes('firefox') || ua.includes('safari');
-  // If running on localhost and not a standard browser, assume cmux
-  return !isStandardBrowser || ua.includes('cmux');
-}
-
-// Open GitHub URL in system default browser via server proxy
+// Open external URL via server (which runs `open` command)
 async function openInSystemBrowser(url: string): Promise<boolean> {
   try {
     const res = await fetch('/api/open-url', {
@@ -99,14 +89,14 @@ function App() {
     });
   }, [data, addToast]);
 
-  // Intercept GitHub links when in cmux browser
+  // Intercept all external links and open via server
   useEffect(() => {
-    if (!isInCmuxBrowser()) return;
-
     const handleClick = async (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const link = target.closest('a');
-      if (link && link.href && link.href.includes('github.com')) {
+      if (link && link.href && (link.href.startsWith('http://') || link.href.startsWith('https://'))) {
+        // Skip if it's a link to the dashboard itself
+        if (link.href.startsWith(window.location.origin)) return;
         e.preventDefault();
         e.stopPropagation();
         await openInSystemBrowser(link.href);

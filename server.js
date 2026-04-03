@@ -804,6 +804,30 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Open external URL in default browser
+  if (pathname === '/api/open-url' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { url } = JSON.parse(body);
+        if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid URL' }));
+          return;
+        }
+        console.log(`[${new Date().toLocaleTimeString()}] Opening URL: ${url}`);
+        execSync(`open "${url}"`, { stdio: 'pipe' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Reply to a PR review comment
   if (pathname === '/api/reply' && req.method === 'POST') {
     let body = '';
