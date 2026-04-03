@@ -13,3 +13,9 @@ web/dist/
 
 # Generated session files (stored in ~/.claude/sessions/)
 *.json
+!plugins/**/*.json
+!package.json
+!package-lock.json
+
+# Session dashboard data directory (created in projects using the dashboard)
+.sessiondashboard/

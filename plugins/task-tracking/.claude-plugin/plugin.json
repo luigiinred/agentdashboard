@@ -1,0 +1,5 @@
+{
+  "name": "task-tracking",
+  "description": "Automatically track Claude Code tasks in the session dashboard",
+  "version": "1.0.0"
+}
