@@ -164,6 +164,38 @@ const AGENT_TABS_DIR = '.sessiondashboard/tabs';
 const LOCAL_COMMENTS_DIR = '.sessiondashboard/comments';
 const LOCAL_COMMENTS_FILE = '.sessiondashboard/comments/comments.json';
 
+// Agent files
+const AGENT_SUMMARY_FILE = '.sessiondashboard/agent-summary.md';
+const AGENT_TODOS_FILE = '.sessiondashboard/todos.json';
+
+// Read agent summary from .sessiondashboard/agent-summary.md
+function readAgentSummary() {
+  const summaryPath = path.join(process.cwd(), AGENT_SUMMARY_FILE);
+  if (!fs.existsSync(summaryPath)) {
+    return null;
+  }
+  try {
+    return fs.readFileSync(summaryPath, 'utf8');
+  } catch (err) {
+    console.error('Error reading agent summary:', err.message);
+    return null;
+  }
+}
+
+// Read agent todos from .sessiondashboard/todos.json
+function readAgentTodos() {
+  const todosPath = path.join(process.cwd(), AGENT_TODOS_FILE);
+  if (!fs.existsSync(todosPath)) {
+    return [];
+  }
+  try {
+    return JSON.parse(fs.readFileSync(todosPath, 'utf8'));
+  } catch (err) {
+    console.error('Error reading agent todos:', err.message);
+    return [];
+  }
+}
+
 // Read local comments from .sessiondashboard/comments/comments.json
 function readLocalComments() {
   const commentsPath = path.join(process.cwd(), LOCAL_COMMENTS_FILE);
@@ -243,6 +275,9 @@ async function collectData() {
     agentTabs: readAgentTabs(),
     uncommitted: { staged: [], unstaged: [], untracked: [] },
     commits: [],
+    openPRs: [],
+    agentSummary: readAgentSummary(),
+    agentTodos: readAgentTodos(),
     localComments: readLocalComments(),
     githubError: githubError,
     refreshInterval: REFRESH_INTERVAL,
@@ -366,6 +401,100 @@ async function collectData() {
       };
       data.baseBranch = prNode.baseRefName || 'main';
     }
+  }
+
+  // Get all open PRs for the current user in this repo
+  if (ghToken && repoInfo && data.user) {
+    const openPRsQuery = `
+      query($owner: String!, $repo: String!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequests(first: 20, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
+            nodes {
+              number
+              url
+              title
+              isDraft
+              createdAt
+              updatedAt
+              headRefName
+              baseRefName
+              additions
+              deletions
+              changedFiles
+              reviewDecision
+              comments { totalCount }
+              reviewThreads(first: 100) {
+                totalCount
+                nodes { isResolved }
+              }
+              author { login }
+              commits(last: 1) {
+                nodes {
+                  commit {
+                    statusCheckRollup {
+                      state
+                      contexts(first: 50) {
+                        totalCount
+                        nodes {
+                          ... on CheckRun {
+                            conclusion
+                          }
+                          ... on StatusContext {
+                            state
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const openPRsResult = await githubAPI(openPRsQuery, {
+      owner: repoInfo.owner,
+      repo: repoInfo.name,
+    });
+
+    const allPRs = openPRsResult?.repository?.pullRequests?.nodes || [];
+    // Filter to only user's PRs
+    data.openPRs = allPRs
+      .filter(pr => pr.author?.login === data.user)
+      .map(pr => {
+        const rollup = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup;
+        const contexts = rollup?.contexts?.nodes || [];
+        const totalChecks = rollup?.contexts?.totalCount || 0;
+        const passedChecks = contexts.filter(c =>
+          c.conclusion === 'SUCCESS' || c.state === 'SUCCESS'
+        ).length;
+
+        const threads = pr.reviewThreads?.nodes || [];
+        const unresolvedThreads = threads.filter(t => !t.isResolved).length;
+
+        return {
+          number: pr.number,
+          url: pr.url,
+          title: pr.title,
+          draft: pr.isDraft,
+          branch: pr.headRefName,
+          base: pr.baseRefName,
+          createdAt: pr.createdAt,
+          updatedAt: pr.updatedAt,
+          additions: pr.additions,
+          deletions: pr.deletions,
+          changedFiles: pr.changedFiles,
+          checksStatus: rollup?.state || null,
+          checksPassed: passedChecks,
+          checksTotal: totalChecks,
+          reviewDecision: pr.reviewDecision,
+          commentsCount: pr.comments?.totalCount || 0,
+          threadsCount: pr.reviewThreads?.totalCount || 0,
+          unresolvedThreads: unresolvedThreads,
+        };
+      });
   }
 
   // Get recent commits on this branch
