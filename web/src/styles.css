@@ -115,6 +115,23 @@ body {
 .pr-status.closed { background: #da3633; color: white; }
 .pr-status.draft { background: #6e7681; color: white; }
 
+.report-issue-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.report-issue-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text);
+}
+
 /* Tabs */
 .tabs {
   display: flex;
