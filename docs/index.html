@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Session Dashboard - Real-time Git &amp; PR Monitoring for AI Coding Agents</title>
+  <meta name="description" content="A local web dashboard for monitoring git branches and GitHub PRs. Designed for AI coding agents to display real-time session data.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #21262d;
+      --border: #30363d;
+      --text-primary: #e6edf3;
+      --text-secondary: #8b949e;
+      --text-muted: #6e7681;
+      --accent-blue: #58a6ff;
+      --accent-green: #3fb950;
+      --accent-purple: #a371f7;
+      --accent-orange: #d29922;
+      --accent-red: #f85149;
+      --gradient-start: #58a6ff;
+      --gradient-end: #a371f7;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+
+    code, pre {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    a {
+      color: var(--accent-blue);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Header */
+    header {
+      padding: 24px 0;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--bg-primary);
+      z-index: 100;
+    }
+
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 600;
+      font-size: 1.25rem;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    nav {
+      display: flex;
+      gap: 32px;
+    }
+
+    nav a {
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    nav a:hover {
+      color: var(--text-primary);
+      text-decoration: none;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 0.875rem;
+      transition: all 0.2s;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      color: white;
+    }
+
+    .btn-primary:hover {
+      opacity: 0.9;
+      text-decoration: none;
+    }
+
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: var(--border);
+      text-decoration: none;
+    }
+
+    /* Hero */
+    .hero {
+      padding: 100px 0 80px;
+      text-align: center;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 50px;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+    }
+
+    .hero-badge span {
+      color: var(--accent-green);
+    }
+
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 700;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: 1.25rem;
+      color: var(--text-secondary);
+      max-width: 700px;
+      margin: 0 auto 40px;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .hero-screenshot {
+      margin-top: 60px;
+      position: relative;
+    }
+
+    .screenshot-placeholder {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 40px;
+      min-height: 400px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+    }
+
+    .screenshot-placeholder svg {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    /* Why Section */
+    .why {
+      padding: 100px 0;
+      background: var(--bg-secondary);
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+
+    .section-header h2 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .section-header p {
+      font-size: 1.125rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .why-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 32px;
+    }
+
+    .why-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+    }
+
+    .why-card-icon {
+      width: 48px;
+      height: 48px;
+      background: var(--bg-tertiary);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      font-size: 1.5rem;
+    }
+
+    .why-card h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .why-card p {
+      color: var(--text-secondary);
+    }
+
+    /* Features */
+    .features {
+      padding: 100px 0;
+    }
+
+    .feature-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+      margin-bottom: 80px;
+    }
+
+    .feature-row:nth-child(even) {
+      direction: rtl;
+    }
+
+    .feature-row:nth-child(even) > * {
+      direction: ltr;
+    }
+
+    .feature-content h3 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .feature-content p {
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+    }
+
+    .feature-list {
+      list-style: none;
+    }
+
+    .feature-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+      color: var(--text-secondary);
+    }
+
+    .feature-list li::before {
+      content: "";
+      width: 20px;
+      height: 20px;
+      background: var(--accent-green);
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .feature-screenshot {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      min-height: 300px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+    }
+
+    /* Coming Soon */
+    .coming-soon {
+      padding: 100px 0;
+      background: var(--bg-secondary);
+    }
+
+    .roadmap-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+
+    .roadmap-card {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .roadmap-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end));
+    }
+
+    .roadmap-badge {
+      display: inline-flex;
+      padding: 4px 10px;
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--accent-orange);
+      margin-bottom: 16px;
+    }
+
+    .roadmap-card h3 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .roadmap-card p {
+      color: var(--text-secondary);
+      font-size: 0.9375rem;
+    }
+
+    /* Install */
+    .install {
+      padding: 100px 0;
+    }
+
+    .install-box {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 40px;
+      text-align: center;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .install-box h2 {
+      font-size: 2rem;
+      margin-bottom: 16px;
+    }
+
+    .install-box p {
+      color: var(--text-secondary);
+      margin-bottom: 32px;
+    }
+
+    .code-block {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px 24px;
+      text-align: left;
+      margin-bottom: 24px;
+      position: relative;
+    }
+
+    .code-block code {
+      color: var(--text-primary);
+      font-size: 0.9375rem;
+    }
+
+    .code-block .comment {
+      color: var(--text-muted);
+    }
+
+    /* Footer */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .footer-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-content p {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+    }
+
+    .footer-links a {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero h1 {
+        font-size: 2.5rem;
+      }
+
+      .feature-row {
+        grid-template-columns: 1fr;
+        gap: 32px;
+      }
+
+      .feature-row:nth-child(even) {
+        direction: ltr;
+      }
+
+      nav {
+        display: none;
+      }
+
+      .footer-content {
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container header-content">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12,6 12,12 16,14"/>
+          </svg>
+        </div>
+        Session Dashboard
+      </div>
+      <nav>
+        <a href="#why">Why</a>
+        <a href="#features">Features</a>
+        <a href="#roadmap">Roadmap</a>
+        <a href="#install">Install</a>
+      </nav>
+      <a href="https://github.com/luigiinred/session-dashboard" class="btn btn-secondary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+        </svg>
+        GitHub
+      </a>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container">
+      <div class="hero-badge">
+        <span>&#x2022;</span> Built for AI Coding Agents
+      </div>
+      <h1>
+        Real-time visibility into<br>
+        <span>your coding sessions</span>
+      </h1>
+      <p>
+        A local web dashboard that monitors your git branches, GitHub PRs, CI status, and code changes.
+        Designed for AI coding agents like Claude Code to communicate progress in real-time.
+      </p>
+      <div class="hero-buttons">
+        <a href="#install" class="btn btn-primary">
+          Get Started
+        </a>
+        <a href="https://github.com/luigiinred/session-dashboard" class="btn btn-secondary">
+          View on GitHub
+        </a>
+      </div>
+      <div class="hero-screenshot">
+        <div class="screenshot-placeholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <line x1="3" y1="9" x2="21" y2="9"/>
+            <line x1="9" y1="21" x2="9" y2="9"/>
+          </svg>
+          <p>Screenshot: Main Dashboard Overview</p>
+          <p style="font-size: 0.875rem; margin-top: 8px;">Shows branch info, PR status, CI checks, and file changes</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="why" id="why">
+    <div class="container">
+      <div class="section-header">
+        <h2>Why Session Dashboard?</h2>
+        <p>AI coding agents work in the terminal. Humans need visual feedback. Session Dashboard bridges that gap.</p>
+      </div>
+      <div class="why-grid">
+        <div class="why-card">
+          <div class="why-card-icon">&#x1F916;</div>
+          <h3>Built for AI Agents</h3>
+          <p>
+            When AI agents like Claude Code work on your codebase, they make changes fast.
+            Session Dashboard gives you a live view of what's happening without interrupting the agent's flow.
+          </p>
+        </div>
+        <div class="why-card">
+          <div class="why-card-icon">&#x26A1;</div>
+          <h3>Real-time Updates</h3>
+          <p>
+            Uses Server-Sent Events (SSE) to push updates instantly. No manual refreshing needed.
+            See commits, file changes, and PR status the moment they happen.
+          </p>
+        </div>
+        <div class="why-card">
+          <div class="why-card-icon">&#x1F512;</div>
+          <h3>Completely Local</h3>
+          <p>
+            Runs entirely on your machine. Your code never leaves your computer.
+            The dashboard talks directly to your local git repo and the GitHub API with your own token.
+          </p>
+        </div>
+        <div class="why-card">
+          <div class="why-card-icon">&#x1F4AC;</div>
+          <h3>Human-Agent Communication</h3>
+          <p>
+            Leave comments on specific files or lines. Agents can read them and respond.
+            A native way to guide AI work without breaking their context window.
+          </p>
+        </div>
+        <div class="why-card">
+          <div class="why-card-icon">&#x1F50C;</div>
+          <h3>Extensible via Plugins</h3>
+          <p>
+            Need custom data? Write a plugin. The plugin API lets you inject any data you want
+            into the dashboard&mdash;build notifications, test results, deployment status, anything.
+          </p>
+        </div>
+        <div class="why-card">
+          <div class="why-card-icon">&#x1F3AF;</div>
+          <h3>Zero Config</h3>
+          <p>
+            Just run it in any git repo. It auto-detects your GitHub remote, finds your auth token
+            from the gh CLI, and starts serving. No setup files, no environment variables required.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="features" id="features">
+    <div class="container">
+      <div class="section-header">
+        <h2>Features</h2>
+        <p>Everything you need to monitor AI coding sessions</p>
+      </div>
+
+      <div class="feature-row">
+        <div class="feature-content">
+          <h3>Branch &amp; PR Overview</h3>
+          <p>
+            See your current branch, associated PR, and its status at a glance.
+            Know immediately if your PR is in draft, ready for review, or merged.
+          </p>
+          <ul class="feature-list">
+            <li>Current branch and base branch display</li>
+            <li>PR number, title, and status</li>
+            <li>Draft state indicator</li>
+            <li>Direct links to GitHub PR page</li>
+          </ul>
+        </div>
+        <div class="feature-screenshot">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
+            <circle cx="18" cy="18" r="3"/>
+            <circle cx="6" cy="6" r="3"/>
+            <path d="M6 21V9a9 9 0 0 0 9 9"/>
+          </svg>
+          <p>Screenshot: Branch &amp; PR Header</p>
+        </div>
+      </div>
+
+      <div class="feature-row">
+        <div class="feature-content">
+          <h3>CI Status &amp; Checks</h3>
+          <p>
+            Monitor all your CI checks in real-time. See which checks are passing, failing, or still running
+            without leaving your dashboard.
+          </p>
+          <ul class="feature-list">
+            <li>Aggregated status (pass/fail/pending)</li>
+            <li>Individual check breakdown</li>
+            <li>Direct links to check details</li>
+            <li>Real-time status updates</li>
+          </ul>
+        </div>
+        <div class="feature-screenshot">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+          <p>Screenshot: CI Checks Panel</p>
+        </div>
+      </div>
+
+      <div class="feature-row">
+        <div class="feature-content">
+          <h3>File Changes with Diffs</h3>
+          <p>
+            Browse all changed files with full diff views. See additions, deletions, and line-by-line changes
+            for both committed and uncommitted work.
+          </p>
+          <ul class="feature-list">
+            <li>Committed changes (vs base branch)</li>
+            <li>Staged, unstaged, and untracked files</li>
+            <li>Full diff view with syntax highlighting</li>
+            <li>File-level addition/deletion stats</li>
+          </ul>
+        </div>
+        <div class="feature-screenshot">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          <p>Screenshot: Files Tab with Diffs</p>
+        </div>
+      </div>
+
+      <div class="feature-row">
+        <div class="feature-content">
+          <h3>Comments &amp; Review Threads</h3>
+          <p>
+            View all PR review comments and local comment threads in one place.
+            Reply to comments, resolve threads, and communicate with your team or AI agent.
+          </p>
+          <ul class="feature-list">
+            <li>GitHub PR review comments</li>
+            <li>Local comments (stored in repo)</li>
+            <li>Reply directly from dashboard</li>
+            <li>Resolve/unresolve threads</li>
+          </ul>
+        </div>
+        <div class="feature-screenshot">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <p>Screenshot: Comments Tab</p>
+        </div>
+      </div>
+
+      <div class="feature-row">
+        <div class="feature-content">
+          <h3>Agent Tabs</h3>
+          <p>
+            AI agents can create custom HTML tabs that appear in the dashboard.
+            Perfect for progress reports, visualizations, or any custom UI the agent wants to show you.
+          </p>
+          <ul class="feature-list">
+            <li>Agents drop HTML files in <code>.sessiondashboard/tabs/</code></li>
+            <li>Auto-detected and rendered as tabs</li>
+            <li>Live updates when files change</li>
+            <li>Full HTML/CSS/JS support</li>
+          </ul>
+        </div>
+        <div class="feature-screenshot">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <line x1="3" y1="9" x2="21" y2="9"/>
+            <line x1="9" y1="21" x2="9" y2="9"/>
+          </svg>
+          <p>Screenshot: Custom Agent Tab</p>
+        </div>
+      </div>
+
+      <div class="feature-row">
+        <div class="feature-content">
+          <h3>PR Stack Visualization</h3>
+          <p>
+            Working with stacked PRs? See the entire stack at once. Understand which PRs depend on each other
+            and navigate between them easily.
+          </p>
+          <ul class="feature-list">
+            <li>Current PR highlighted</li>
+            <li>Child PRs (based on this branch)</li>
+            <li>State indicators (open/merged/closed)</li>
+            <li>Quick navigation links</li>
+          </ul>
+        </div>
+        <div class="feature-screenshot">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 16px; opacity: 0.5;">
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+          <p>Screenshot: PR Stack View</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="coming-soon" id="roadmap">
+    <div class="container">
+      <div class="section-header">
+        <h2>Coming Soon</h2>
+        <p>Features we're actively working on to make Session Dashboard even better</p>
+      </div>
+      <div class="roadmap-grid">
+        <div class="roadmap-card">
+          <span class="roadmap-badge">In Progress</span>
+          <h3>Multi-Worktree Support</h3>
+          <p>
+            Monitor multiple worktrees simultaneously. Perfect for developers using git worktrees
+            to work on multiple branches in parallel. Each worktree gets its own dashboard instance
+            or a unified view showing all active sessions.
+          </p>
+        </div>
+        <div class="roadmap-card">
+          <span class="roadmap-badge">Planned</span>
+          <h3>Test Results Integration</h3>
+          <p>
+            See test results directly in the dashboard. Parse JUnit XML, Jest JSON, or other common
+            test output formats. Show which tests are passing, failing, and skipped with
+            links to the relevant code.
+          </p>
+        </div>
+        <div class="roadmap-card">
+          <span class="roadmap-badge">Planned</span>
+          <h3>Build &amp; Deployment Status</h3>
+          <p>
+            Track your deployment pipeline. Know when builds complete, when deployments go out,
+            and link to preview environments. Integrate with Vercel, Netlify, AWS, and other platforms.
+          </p>
+        </div>
+        <div class="roadmap-card">
+          <span class="roadmap-badge">Planned</span>
+          <h3>Session History</h3>
+          <p>
+            Browse past coding sessions. See what was worked on, when, and by whom (human or AI).
+            Replay the timeline of changes and understand how the codebase evolved over multiple sessions.
+          </p>
+        </div>
+        <div class="roadmap-card">
+          <span class="roadmap-badge">Exploring</span>
+          <h3>Voice Notifications</h3>
+          <p>
+            Get audio alerts for important events. Hear when CI fails, when a PR gets approved,
+            or when an AI agent finishes a task. Configurable voice synthesis for status updates.
+          </p>
+        </div>
+        <div class="roadmap-card">
+          <span class="roadmap-badge">Exploring</span>
+          <h3>Conflict Detection</h3>
+          <p>
+            Early warning when your branch has conflicts with main. See the conflicting files
+            before you try to merge. Get suggestions for resolution order based on complexity.
+          </p>
+        </div>
+        <div class="roadmap-card">
+          <span class="roadmap-badge">Exploring</span>
+          <h3>Code Quality Metrics</h3>
+          <p>
+            Track code complexity, test coverage, and other quality metrics over time.
+            See trends as changes are made. Flag when metrics degrade significantly.
+          </p>
+        </div>
+        <div class="roadmap-card">
+          <span class="roadmap-badge">Exploring</span>
+          <h3>Team Presence</h3>
+          <p>
+            See who else is working on the same repo. Avoid stepping on each other's toes.
+            Know when teammates are reviewing your PR or working on related files.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="install" id="install">
+    <div class="container">
+      <div class="install-box">
+        <h2>Get Started in 30 Seconds</h2>
+        <p>Session Dashboard works with any git repository. Just clone, install, and run.</p>
+        <div class="code-block">
+          <code>
+            <span class="comment"># Clone the repo</span><br>
+            git clone https://github.com/luigiinred/session-dashboard.git<br>
+            cd session-dashboard<br><br>
+            <span class="comment"># Install dependencies</span><br>
+            npm install && cd web && npm install && npm run build && cd ..<br><br>
+            <span class="comment"># Run in any git project</span><br>
+            cd /path/to/your/project<br>
+            npx agentdashboard -o
+          </code>
+        </div>
+        <p style="font-size: 0.875rem; color: var(--text-muted);">
+          Requires Node.js 18+. For GitHub features, authenticate with <code>gh auth login</code> or set <code>GITHUB_TOKEN</code>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container footer-content">
+      <p>Session Dashboard &mdash; Open source under MIT License</p>
+      <div class="footer-links">
+        <a href="https://github.com/luigiinred/session-dashboard">GitHub</a>
+        <a href="https://github.com/luigiinred/session-dashboard/issues">Issues</a>
+        <a href="https://github.com/luigiinred/session-dashboard/blob/main/LICENSE">License</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
