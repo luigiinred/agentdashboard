@@ -1,5 +1,18 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import type { DashboardData, OpenPR } from '../types';
+
+async function openInWorktree(branch: string, project: string): Promise<{ success: boolean; action?: string; error?: string }> {
+  try {
+    const res = await fetch('/api/open-worktree', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch, project }),
+    });
+    return await res.json();
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
 
 interface GitProps {
   data: DashboardData;
@@ -39,10 +52,25 @@ function buildPRTree(prs: OpenPR[]): PRNode[] {
   return roots;
 }
 
-function PRTreeItem({ node, currentBranch, depth = 0 }: { node: PRNode; currentBranch: string; depth?: number }) {
+function PRTreeItem({ node, currentBranch, project, depth = 0 }: { node: PRNode; currentBranch: string; project: string; depth?: number }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [loading, setLoading] = useState(false);
   const { pr, children } = node;
   const hasChildren = children.length > 0;
+
+  const handleOpenWorktree = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLoading(true);
+    try {
+      const result = await openInWorktree(pr.branch, project);
+      if (!result.success) {
+        console.error('Failed to open worktree:', result.error);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [pr.branch, project]);
 
   return (
     <div className="pr-tree-item">
@@ -70,7 +98,6 @@ function PRTreeItem({ node, currentBranch, depth = 0 }: { node: PRNode; currentB
           <div className="open-pr-header">
             <span className="open-pr-number">#{pr.number}</span>
             {pr.draft && <span className="open-pr-draft">Draft</span>}
-            {pr.branch === currentBranch && <span className="open-pr-current">current</span>}
             {hasChildren && <span className="pr-children-count">{children.length} stacked</span>}
           </div>
           <div className="open-pr-status-row">
@@ -91,6 +118,13 @@ function PRTreeItem({ node, currentBranch, depth = 0 }: { node: PRNode; currentB
             )}
             {!pr.reviewDecision && !pr.draft && (
               <span className="open-pr-review pending">○ Awaiting review</span>
+            )}
+            {/* Merge Status */}
+            {pr.mergeable === 'CONFLICTING' && (
+              <span className="open-pr-merge conflicting">⚠ Conflicts</span>
+            )}
+            {pr.mergeStateStatus === 'BEHIND' && pr.mergeable !== 'CONFLICTING' && (
+              <span className="open-pr-merge behind">↓ Behind base</span>
             )}
           </div>
           <div className="open-pr-title">{pr.title}</div>
@@ -118,11 +152,23 @@ function PRTreeItem({ node, currentBranch, depth = 0 }: { node: PRNode; currentB
             <span className="open-pr-base">{pr.base}</span>
           </div>
         </a>
+        {pr.branch === currentBranch ? (
+          <span className="open-pr-current">current</span>
+        ) : (
+          <button
+            className="btn-worktree"
+            onClick={handleOpenWorktree}
+            disabled={loading}
+            title="Open in cmux workspace"
+          >
+            {loading ? '...' : 'Open in cmux'}
+          </button>
+        )}
       </div>
       {hasChildren && !collapsed && (
         <div className="pr-tree-children">
           {children.map(child => (
-            <PRTreeItem key={child.pr.number} node={child} currentBranch={currentBranch} depth={depth + 1} />
+            <PRTreeItem key={child.pr.number} node={child} currentBranch={currentBranch} project={project} depth={depth + 1} />
           ))}
         </div>
       )}
@@ -145,7 +191,7 @@ export function Git({ data }: GitProps) {
           <div className="card-content">
             <div className="open-prs-list">
               {prTree.map(node => (
-                <PRTreeItem key={node.pr.number} node={node} currentBranch={data.branch} />
+                <PRTreeItem key={node.pr.number} node={node} currentBranch={data.branch} project={data.project} />
               ))}
             </div>
           </div>

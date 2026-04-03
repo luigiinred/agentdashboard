@@ -121,6 +121,8 @@ export interface OpenPR {
   checksPassed: number;
   checksTotal: number;
   reviewDecision: string | null;
+  mergeable: string | null;
+  mergeStateStatus: string | null;
   commentsCount: number;
   threadsCount: number;
   unresolvedThreads: number;
