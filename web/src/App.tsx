@@ -169,6 +169,7 @@ function App() {
     <div className="app">
       <Header
         project={data.project}
+        directory={data.directory}
         user={data.user}
         branch={data.branch}
         pr={data.pr}

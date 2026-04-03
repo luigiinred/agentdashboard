@@ -137,6 +137,7 @@ export interface OpenPR {
 
 export interface DashboardData {
   project: string;
+  directory: string;
   branch: string;
   baseBranch: string;
   user: string | null;

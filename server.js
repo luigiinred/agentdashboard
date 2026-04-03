@@ -260,8 +260,10 @@ function readAgentTabs() {
 
 // Collect all dashboard data
 async function collectData() {
+  const cwd = process.cwd();
   const data = {
-    project: path.basename(process.cwd()),
+    project: path.basename(cwd),
+    directory: cwd,
     branch: run('git branch --show-current') || 'detached',
     baseBranch: 'main',
     user: null,

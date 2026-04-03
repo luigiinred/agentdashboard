@@ -2,12 +2,13 @@ import type { PRInfo } from '../types';
 
 interface HeaderProps {
   project: string;
+  directory: string;
   user: string | null;
   branch: string;
   pr: PRInfo | null;
 }
 
-export function Header({ project, user, branch, pr }: HeaderProps) {
+export function Header({ project, directory, user, branch, pr }: HeaderProps) {
   return (
     <header className="header">
       {user && (
@@ -19,6 +20,7 @@ export function Header({ project, user, branch, pr }: HeaderProps) {
       )}
       <div className="header-info">
         <h1 className="project-name">{project}</h1>
+        <div className="directory-path">{directory}</div>
         <div className="branch-info">
           <span className="branch-name-text">{branch}</span>
           {pr && (
