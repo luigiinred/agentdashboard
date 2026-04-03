@@ -97,6 +97,35 @@ export interface Commit {
   date: string;
 }
 
+export interface AgentTodo {
+  id: string;
+  text: string;
+  completed: boolean;
+  createdAt?: string;
+  completedAt?: string;
+}
+
+export interface OpenPR {
+  number: number;
+  url: string;
+  title: string;
+  draft: boolean;
+  branch: string;
+  base: string;
+  createdAt: string;
+  updatedAt: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  checksStatus: string | null;
+  checksPassed: number;
+  checksTotal: number;
+  reviewDecision: string | null;
+  commentsCount: number;
+  threadsCount: number;
+  unresolvedThreads: number;
+}
+
 export interface DashboardData {
   project: string;
   branch: string;
@@ -116,6 +145,9 @@ export interface DashboardData {
   agentTabs: AgentTab[];
   uncommitted: UncommittedChanges;
   commits: Commit[];
+  openPRs: OpenPR[];
+  agentSummary: string | null;
+  agentTodos: AgentTodo[];
   localComments: LocalComment[];
   githubError: string | null;
   refreshInterval: number;
