@@ -1,0 +1,28 @@
+{
+  "name": "agentdashboard",
+  "version": "1.0.0",
+  "description": "Local web dashboard for AI agents to monitor git branches and GitHub PRs",
+  "main": "server.js",
+  "bin": {
+    "agentdashboard": "./bin/cli.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "build": "cd web && npm run build",
+    "build:web": "cd web && npm install && npm run build",
+    "postinstall": "cd web && npm install && npm run build"
+  },
+  "keywords": [
+    "git",
+    "github",
+    "dashboard",
+    "pr",
+    "claude",
+    "ai-agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
