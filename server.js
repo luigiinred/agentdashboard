@@ -1079,24 +1079,28 @@ const server = http.createServer(async (req, res) => {
 
         // Build the Claude prompt with comment context
         const commentContext = comments.map(c => `**${c.author}**: ${c.body}`).join('\n\n');
-        const prompt = `Fix the following code review comment and create a PR back to \`${currentBranch}\`:
+        console.log(`  -> Building prompt for branch=${currentBranch}, file=${filePath}`);
 
-**File:** \`${filePath}\`
+        const prompt = `Fix the following code review comment and create a PR back to ${currentBranch}:
 
-**Review Comments:**
+File: ${filePath}
+
+Review Comments:
 ${commentContext}
 
 Please:
 1. Read the file and understand the issue
 2. Make the necessary fix
 3. Commit the changes
-4. Create a PR targeting \`${currentBranch}\``;
+4. Create a PR targeting ${currentBranch}`;
 
-        // Escape the prompt for shell
-        const escapedPrompt = prompt.replace(/'/g, "'\\''");
+        // Write prompt to a temp file in the worktree to avoid shell escaping issues
+        const promptFile = path.join(worktreePath, '.claude-fix-prompt.txt');
+        fs.writeFileSync(promptFile, prompt);
+        console.log(`  -> Wrote prompt to ${promptFile}`);
 
         // Open cmux workspace
-        const workspaceTitle = `fix: ${filePath.split('/').pop()}`;
+        const workspaceTitle = `fix: ${(filePath || 'comment').split('/').pop()}`;
         console.log(`  -> Opening cmux workspace: ${workspaceTitle}`);
 
         try {
@@ -1113,8 +1117,8 @@ Please:
             // Rename the workspace
             execSync(`cmux rename-workspace --workspace "${workspaceRef}" "${workspaceTitle}"`, { stdio: 'pipe' });
 
-            // Start Claude with the prompt
-            execSync(`cmux send --workspace "${workspaceRef}" "claude -p '${escapedPrompt}'\\n"`, { stdio: 'pipe' });
+            // Start Claude with the prompt from the temp file
+            execSync(`cmux send --workspace "${workspaceRef}" "claude -p \\"\\$(cat .claude-fix-prompt.txt)\\"\\n"`, { stdio: 'pipe' });
             console.log(`  -> Started Claude with fix prompt`);
           }
 
