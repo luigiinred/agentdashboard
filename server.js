@@ -413,13 +413,13 @@ async function collectData() {
     }
   }
 
-  // Get all open PRs for the current user in this repo
+  // Get all open PRs for the current user in this repo using search API
   if (ghToken && repoInfo && data.user) {
     const openPRsQuery = `
-      query($owner: String!, $repo: String!) {
-        repository(owner: $owner, name: $repo) {
-          pullRequests(first: 20, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
-            nodes {
+      query($searchQuery: String!) {
+        search(query: $searchQuery, type: ISSUE, first: 50) {
+          nodes {
+            ... on PullRequest {
               number
               url
               title
@@ -466,12 +466,10 @@ async function collectData() {
       }
     `;
 
-    const openPRsResult = await githubAPI(openPRsQuery, {
-      owner: repoInfo.owner,
-      repo: repoInfo.name,
-    });
+    const searchQuery = `repo:${repoInfo.owner}/${repoInfo.name} is:pr is:open author:${data.user}`;
+    const openPRsResult = await githubAPI(openPRsQuery, { searchQuery });
 
-    const allPRs = openPRsResult?.repository?.pullRequests?.nodes || [];
+    const allPRs = (openPRsResult?.search?.nodes || []).filter(pr => pr.number);
 
     // Get existing worktrees and workspaces to check which PRs have them
     const repoRoot = run('git rev-parse --show-toplevel', { fallback: process.cwd() });
@@ -501,9 +499,8 @@ async function collectData() {
       });
     } catch (e) { /* ignore - cmux may not be available */ }
 
-    // Filter to only user's PRs
+    // Map PR data (already filtered by author in search query)
     data.openPRs = allPRs
-      .filter(pr => pr.author?.login === data.user)
       .map(pr => {
         const rollup = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup;
         const contexts = rollup?.contexts?.nodes || [];
