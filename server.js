@@ -1118,7 +1118,7 @@ Please:
             execSync(`cmux rename-workspace --workspace "${workspaceRef}" "${workspaceTitle}"`, { stdio: 'pipe' });
 
             // Start Claude with the prompt from the temp file
-            execSync(`cmux send --workspace "${workspaceRef}" "claude -p \\"\\$(cat .claude-fix-prompt.txt)\\"\\n"`, { stdio: 'pipe' });
+            execSync(`cmux send --workspace "${workspaceRef}" "claude \\"\\$(cat .claude-fix-prompt.txt)\\"\\n"`, { stdio: 'pipe' });
             console.log(`  -> Started Claude with fix prompt`);
           }
 
