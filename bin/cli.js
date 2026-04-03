@@ -101,7 +101,7 @@ async function main() {
 
   // Start server
   const dashboard = require('../server.js');
-  const { server } = dashboard.start({ port });
+  const { server } = await dashboard.start({ port });
 
   const url = `http://localhost:${port}`;
   console.log(`\n  Dashboard: ${url}\n`);
