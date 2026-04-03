@@ -998,6 +998,144 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Fix a comment in Claude - creates branch, worktree, opens Claude with context
+  if (pathname === '/api/fix-comment' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { threadId, path: filePath, comments } = JSON.parse(body);
+        const currentBranch = currentData?.branch || 'main';
+
+        // Create a short ID from the thread ID (last 8 chars of base64)
+        const shortId = Buffer.from(threadId).toString('base64').slice(-8).replace(/[^a-zA-Z0-9]/g, '');
+        const fixBranch = `${currentBranch}-fix-${shortId}`;
+
+        console.log(`[${new Date().toLocaleTimeString()}] Creating fix branch: ${fixBranch}`);
+
+        // Check if branch already exists
+        const branchExists = run(`git branch --list ${fixBranch}`, { fallback: '' }).trim();
+
+        if (!branchExists) {
+          // Create the new branch from current branch
+          try {
+            execSync(`git branch ${fixBranch} ${currentBranch}`, { stdio: 'pipe' });
+            console.log(`  -> Created branch: ${fixBranch}`);
+          } catch (e) {
+            console.log(`  -> Error creating branch: ${e.message}`);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Failed to create branch: ${e.message}` }));
+            return;
+          }
+        } else {
+          console.log(`  -> Branch already exists: ${fixBranch}`);
+        }
+
+        // Check if worktree already exists
+        let worktreePath = null;
+        try {
+          const worktreeList = run('git worktree list --porcelain', { fallback: '' });
+          const entries = worktreeList.split('\n\n').filter(Boolean);
+          for (const entry of entries) {
+            const lines = entry.split('\n');
+            const pathLine = lines.find(l => l.startsWith('worktree '));
+            const branchLine = lines.find(l => l.startsWith('branch '));
+            if (pathLine && branchLine) {
+              const wtPath = pathLine.replace('worktree ', '');
+              const wtBranch = branchLine.replace('branch refs/heads/', '');
+              if (wtBranch === fixBranch) {
+                worktreePath = wtPath;
+                console.log(`  -> Found existing worktree: ${wtPath}`);
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`  -> Error listing worktrees: ${e.message}`);
+        }
+
+        // Create worktree if needed
+        if (!worktreePath) {
+          const repoRoot = run('git rev-parse --show-toplevel', { fallback: process.cwd() });
+          const parentDir = path.dirname(repoRoot);
+          const worktreesDir = path.join(parentDir, 'worktrees', path.basename(repoRoot));
+          const sanitizedBranch = fixBranch.replace(/\//g, '-');
+          worktreePath = path.join(worktreesDir, sanitizedBranch);
+
+          if (!fs.existsSync(worktreesDir)) {
+            fs.mkdirSync(worktreesDir, { recursive: true });
+          }
+
+          try {
+            execSync(`git worktree add "${worktreePath}" ${fixBranch}`, { stdio: 'pipe' });
+            console.log(`  -> Created worktree: ${worktreePath}`);
+          } catch (e) {
+            console.log(`  -> Error creating worktree: ${e.message}`);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Failed to create worktree: ${e.message}` }));
+            return;
+          }
+        }
+
+        // Build the Claude prompt with comment context
+        const commentContext = comments.map(c => `**${c.author}**: ${c.body}`).join('\n\n');
+        const prompt = `Fix the following code review comment and create a PR back to \`${currentBranch}\`:
+
+**File:** \`${filePath}\`
+
+**Review Comments:**
+${commentContext}
+
+Please:
+1. Read the file and understand the issue
+2. Make the necessary fix
+3. Commit the changes
+4. Create a PR targeting \`${currentBranch}\``;
+
+        // Escape the prompt for shell
+        const escapedPrompt = prompt.replace(/'/g, "'\\''");
+
+        // Open cmux workspace
+        const workspaceTitle = `fix: ${filePath.split('/').pop()}`;
+        console.log(`  -> Opening cmux workspace: ${workspaceTitle}`);
+
+        try {
+          // Create new workspace and capture its ref
+          const createOutput = execSync(`cmux new-workspace --cwd "${worktreePath}"`, { encoding: 'utf8' }).trim();
+          const workspaceRefMatch = createOutput.match(/(workspace:\d+)/);
+          const workspaceRef = workspaceRefMatch ? workspaceRefMatch[1] : null;
+          console.log(`  -> Created workspace: ${workspaceRef}`);
+
+          if (workspaceRef) {
+            // Select the new workspace
+            execSync(`cmux select-workspace --workspace "${workspaceRef}"`, { stdio: 'pipe' });
+
+            // Rename the workspace
+            execSync(`cmux rename-workspace --workspace "${workspaceRef}" "${workspaceTitle}"`, { stdio: 'pipe' });
+
+            // Start Claude with the prompt
+            execSync(`cmux send --workspace "${workspaceRef}" "claude -p '${escapedPrompt}'\\n"`, { stdio: 'pipe' });
+            console.log(`  -> Started Claude with fix prompt`);
+          }
+
+          execSync('cmux set-app-focus active', { stdio: 'pipe' });
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, branch: fixBranch, worktree: worktreePath }));
+        } catch (e) {
+          console.log(`  -> Error opening cmux: ${e.message}`);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Failed to open cmux: ${e.message}` }));
+        }
+      } catch (err) {
+        console.log(`  -> Error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
   // Get local comments
   if (pathname === '/api/local-comments' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });

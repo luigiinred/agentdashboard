@@ -93,6 +93,31 @@ export function Comments({ comments, localComments }: CommentsProps) {
     }
   };
 
+  const [fixingThread, setFixingThread] = useState<string | null>(null);
+
+  const fixInClaude = async (thread: CommentThread) => {
+    setFixingThread(thread.id);
+    try {
+      const res = await fetch('/api/fix-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId: thread.id,
+          path: thread.path,
+          comments: thread.comments.map(c => ({ author: c.author, body: c.body })),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to start fix');
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to start fix');
+    } finally {
+      setFixingThread(null);
+    }
+  };
+
   const submitComment = async () => {
     if (!newComment.trim() || isSubmitting) return;
     setIsSubmitting(true);
@@ -513,6 +538,13 @@ export function Comments({ comments, localComments }: CommentsProps) {
                   Resolve
                 </button>
               )}
+              <button
+                className="btn-small btn-fix-claude"
+                onClick={() => fixInClaude(thread)}
+                disabled={fixingThread === thread.id}
+              >
+                {fixingThread === thread.id ? 'Starting...' : 'Fix in Claude'}
+              </button>
               <a
                 href={thread.comments[0]?.url}
                 target="_blank"
