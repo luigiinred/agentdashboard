@@ -28,7 +28,7 @@ export interface FileInfo {
 }
 
 export interface Comment {
-  id: number;
+  id: string;
   author: string;
   body: string;
   createdAt: string;
@@ -37,6 +37,7 @@ export interface Comment {
 }
 
 export interface CommentThread {
+  id: string;
   isResolved: boolean;
   isOutdated: boolean;
   path: string;

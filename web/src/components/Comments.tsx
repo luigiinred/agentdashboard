@@ -26,6 +26,7 @@ export function Comments({ comments, localComments }: CommentsProps) {
   const [showLocal, setShowLocal] = useState(true);
   const [showGithub, setShowGithub] = useState(true);
   const [newComment, setNewComment] = useState('');
+  const [commentTarget, setCommentTarget] = useState<'local' | 'github'>('local');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -76,24 +77,53 @@ export function Comments({ comments, localComments }: CommentsProps) {
     }
   };
 
+  const resolveGithubThread = async (threadId: string, resolved: boolean) => {
+    try {
+      const res = await fetch('/api/github-resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId, resolved }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to update thread');
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Failed to update thread');
+    }
+  };
+
   const submitComment = async () => {
     if (!newComment.trim() || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      // Each new general comment gets its own unique thread ID
-      const threadId = `general:${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      await fetch('/api/local-comments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target: threadId,
-          body: newComment.trim(),
-          author: 'human',
-        }),
-      });
+      if (commentTarget === 'github') {
+        // Post to GitHub PR
+        const res = await fetch('/api/github-comment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: newComment.trim() }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Failed to post to GitHub');
+        }
+      } else {
+        // Post locally
+        const threadId = `general:${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        await fetch('/api/local-comments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            target: threadId,
+            body: newComment.trim(),
+            author: 'human',
+          }),
+        });
+      }
       setNewComment('');
     } catch (e) {
-      alert('Failed to post comment');
+      alert(e instanceof Error ? e.message : 'Failed to post comment');
     } finally {
       setIsSubmitting(false);
     }
@@ -185,13 +215,18 @@ export function Comments({ comments, localComments }: CommentsProps) {
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
-  // Filter comments
-  const filteredGhComments = comments.filter(thread => {
-    if (!showGithub) return false;
-    if (filter === 'open') return !thread.isResolved;
-    if (filter === 'resolved') return thread.isResolved;
-    return true;
-  });
+  // Filter and sort comments (resolved at bottom)
+  const filteredGhComments = comments
+    .filter(thread => {
+      if (!showGithub) return false;
+      if (filter === 'open') return !thread.isResolved;
+      if (filter === 'resolved') return thread.isResolved;
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.isResolved === b.isResolved) return 0;
+      return a.isResolved ? 1 : -1;
+    });
 
   // Group local comments by target (file:path:line or other target)
   const localThreads = localComments.reduce((acc, lc) => {
@@ -203,15 +238,22 @@ export function Comments({ comments, localComments }: CommentsProps) {
     return acc;
   }, {} as Record<string, LocalComment[]>);
 
-  // Filter local threads
-  const filteredLocalThreads = Object.entries(localThreads).filter(([, thread]) => {
-    if (!showLocal) return false;
-    // A thread is resolved if all comments are resolved
-    const isResolved = thread.every(c => c.resolved);
-    if (filter === 'open') return !isResolved;
-    if (filter === 'resolved') return isResolved;
-    return true;
-  });
+  // Filter and sort local threads (resolved at bottom)
+  const filteredLocalThreads = Object.entries(localThreads)
+    .filter(([, thread]) => {
+      if (!showLocal) return false;
+      // A thread is resolved if all comments are resolved
+      const isResolved = thread.every(c => c.resolved);
+      if (filter === 'open') return !isResolved;
+      if (filter === 'resolved') return isResolved;
+      return true;
+    })
+    .sort(([, a], [, b]) => {
+      const aResolved = a.every(c => c.resolved);
+      const bResolved = b.every(c => c.resolved);
+      if (aResolved === bResolved) return 0;
+      return aResolved ? 1 : -1;
+    });
 
   // Count threads, not individual comments
   const localThreadCount = Object.keys(localThreads).length;
@@ -456,6 +498,21 @@ export function Comments({ comments, localComments }: CommentsProps) {
             ))}
             {/* Actions */}
             <div className="comment-actions">
+              {thread.isResolved ? (
+                <button
+                  className="btn-small btn-unresolve"
+                  onClick={() => resolveGithubThread(thread.id, false)}
+                >
+                  Unresolve
+                </button>
+              ) : (
+                <button
+                  className="btn-small btn-resolve"
+                  onClick={() => resolveGithubThread(thread.id, true)}
+                >
+                  Resolve
+                </button>
+              )}
               <a
                 href={thread.comments[0]?.url}
                 target="_blank"
@@ -473,13 +530,27 @@ export function Comments({ comments, localComments }: CommentsProps) {
       <div className="comment-input-container">
         <textarea
           className="comment-input"
-          placeholder="Leave a comment..."
+          placeholder={commentTarget === 'github' ? 'Post comment to GitHub PR...' : 'Leave a local comment...'}
           value={newComment}
           onChange={(e) => setNewComment(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={2}
         />
         <div className="comment-input-actions">
+          <div className="comment-target-toggle">
+            <button
+              className={`toggle-btn ${commentTarget === 'local' ? 'active' : ''}`}
+              onClick={() => setCommentTarget('local')}
+            >
+              Local
+            </button>
+            <button
+              className={`toggle-btn ${commentTarget === 'github' ? 'active' : ''}`}
+              onClick={() => setCommentTarget('github')}
+            >
+              GitHub
+            </button>
+          </div>
           <span className="comment-input-hint">Cmd+Enter to send</span>
           <button
             className="btn-send"

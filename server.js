@@ -594,11 +594,13 @@ async function collectData() {
           pullRequest(number: $pr) {
             reviewThreads(first: 50) {
               nodes {
+                id
                 isResolved
                 isOutdated
                 path
                 comments(first: 20) {
                   nodes {
+                    id
                     author { login }
                     body
                     createdAt
@@ -621,10 +623,12 @@ async function collectData() {
 
     const threads = commentsResult?.repository?.pullRequest?.reviewThreads?.nodes || [];
     data.comments = threads.map(t => ({
+      id: t.id,
       isResolved: t.isResolved,
       isOutdated: t.isOutdated,
       path: t.path,
       comments: t.comments.nodes.map(c => ({
+        id: c.id,
         author: c.author?.login,
         body: c.body,
         createdAt: c.createdAt,
@@ -874,6 +878,117 @@ const server = http.createServer(async (req, res) => {
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, comment: result }));
+      } catch (err) {
+        console.log(`  -> Error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Post a new GitHub PR comment
+  if (pathname === '/api/github-comment' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { body: commentBody } = JSON.parse(body);
+        console.log(`[${new Date().toLocaleTimeString()}] Posting GitHub PR comment`);
+
+        if (!ghToken || !repoInfo || !currentData?.pr?.number) {
+          console.log('  -> Failed: No PR or GitHub token');
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No PR or GitHub token available' }));
+          return;
+        }
+
+        // POST to issues API (PRs are issues)
+        const url = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.name}/issues/${currentData.pr.number}/comments`;
+        console.log(`  -> POST ${url}`);
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${ghToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ body: commentBody }),
+        });
+
+        if (!response.ok) {
+          const err = await response.text();
+          console.log(`  -> Failed: ${response.status} - ${err}`);
+          res.writeHead(response.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err }));
+          return;
+        }
+
+        const result = await response.json();
+        console.log(`  -> Success: Created GitHub comment ${result.id}`);
+
+        // Refresh data
+        currentData = await collectData();
+        broadcastUpdate(currentData);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, comment: result }));
+      } catch (err) {
+        console.log(`  -> Error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Resolve/unresolve a GitHub review thread
+  if (pathname === '/api/github-resolve' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { threadId, resolved } = JSON.parse(body);
+        console.log(`[${new Date().toLocaleTimeString()}] ${resolved ? 'Resolving' : 'Unresolving'} GitHub thread ${threadId}`);
+
+        if (!ghToken) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No GitHub token available' }));
+          return;
+        }
+
+        const mutation = resolved ? `
+          mutation($threadId: ID!) {
+            resolveReviewThread(input: {threadId: $threadId}) {
+              thread { isResolved }
+            }
+          }
+        ` : `
+          mutation($threadId: ID!) {
+            unresolveReviewThread(input: {threadId: $threadId}) {
+              thread { isResolved }
+            }
+          }
+        `;
+
+        const result = await githubAPI(mutation, { threadId });
+
+        if (result?.errors) {
+          console.log(`  -> Failed: ${JSON.stringify(result.errors)}`);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: result.errors[0]?.message || 'GraphQL error' }));
+          return;
+        }
+
+        console.log(`  -> Success`);
+
+        // Refresh data
+        currentData = await collectData();
+        broadcastUpdate(currentData);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
       } catch (err) {
         console.log(`  -> Error: ${err.message}`);
         res.writeHead(500, { 'Content-Type': 'application/json' });

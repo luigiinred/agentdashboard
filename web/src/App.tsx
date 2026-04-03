@@ -32,7 +32,7 @@ function App() {
 
   // Track seen comment IDs to detect new ones
   const seenLocalCommentIds = useRef<Set<string>>(new Set());
-  const seenGithubCommentIds = useRef<Set<number>>(new Set());
+  const seenGithubCommentIds = useRef<Set<string>>(new Set());
   const isInitialized = useRef(false);
 
   const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {

@@ -1813,6 +1813,37 @@ body {
   align-items: center;
   justify-content: space-between;
   margin-top: 8px;
+  gap: 12px;
+}
+
+.comment-target-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.comment-target-toggle .toggle-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.comment-target-toggle .toggle-btn:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.comment-target-toggle .toggle-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+.comment-target-toggle .toggle-btn:hover:not(.active) {
+  background: var(--hover);
 }
 
 .comment-input-hint {
