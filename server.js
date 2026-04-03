@@ -327,6 +327,11 @@ async function collectData() {
               state
               isDraft
               baseRefName
+              additions
+              deletions
+              changedFiles
+              reviewDecision
+              mergeable
               commits(last: 1) {
                 nodes {
                   commit {
@@ -398,6 +403,11 @@ async function collectData() {
         draft: prNode.isDraft,
         checksStatus: statusRollup?.state || null,
         checks: checks,
+        reviewDecision: prNode.reviewDecision,
+        mergeable: prNode.mergeable,
+        additions: prNode.additions,
+        deletions: prNode.deletions,
+        changedFiles: prNode.changedFiles,
       };
       data.baseBranch = prNode.baseRefName || 'main';
     }
@@ -462,6 +472,35 @@ async function collectData() {
     });
 
     const allPRs = openPRsResult?.repository?.pullRequests?.nodes || [];
+
+    // Get existing worktrees and workspaces to check which PRs have them
+    const repoRoot = run('git rev-parse --show-toplevel', { fallback: process.cwd() });
+    const existingWorktrees = new Set();
+    try {
+      const worktreeList = run('git worktree list --porcelain', { fallback: '' });
+      const entries = worktreeList.split('\n\n').filter(Boolean);
+      for (const entry of entries) {
+        const lines = entry.split('\n');
+        const pathLine = lines.find(l => l.startsWith('worktree '));
+        const branchLine = lines.find(l => l.startsWith('branch '));
+        if (pathLine && branchLine) {
+          const wtPath = pathLine.replace('worktree ', '');
+          if (wtPath !== repoRoot) {
+            const wtBranch = branchLine.replace('branch refs/heads/', '');
+            existingWorktrees.add(wtBranch);
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    const existingWorkspaces = new Set();
+    try {
+      const workspaces = run('cmux list-workspaces', { fallback: '' });
+      workspaces.split('\n').forEach(line => {
+        existingWorkspaces.add(line); // Store full line to search later
+      });
+    } catch (e) { /* ignore - cmux may not be available */ }
+
     // Filter to only user's PRs
     data.openPRs = allPRs
       .filter(pr => pr.author?.login === data.user)
@@ -475,6 +514,16 @@ async function collectData() {
 
         const threads = pr.reviewThreads?.nodes || [];
         const unresolvedThreads = threads.filter(t => !t.isResolved).length;
+
+        // Check if workspace or worktree exists for this branch
+        const hasWorktree = existingWorktrees.has(pr.headRefName);
+        let hasWorkspace = false;
+        for (const ws of existingWorkspaces) {
+          if (ws.includes(pr.headRefName)) {
+            hasWorkspace = true;
+            break;
+          }
+        }
 
         return {
           number: pr.number,
@@ -494,6 +543,8 @@ async function collectData() {
           reviewDecision: pr.reviewDecision,
           mergeable: pr.mergeable,
           mergeStateStatus: pr.mergeStateStatus,
+          hasWorktree,
+          hasWorkspace,
           commentsCount: pr.comments?.totalCount || 0,
           threadsCount: pr.reviewThreads?.totalCount || 0,
           unresolvedThreads: unresolvedThreads,
@@ -959,8 +1010,9 @@ const server = http.createServer(async (req, res) => {
           console.log(`  -> Error checking workspaces: ${e.message}`);
         }
 
-        // Check if worktree already exists for this branch
+        // Check if worktree already exists for this branch (skip main repo)
         let worktreePath = null;
+        const repoRoot = run('git rev-parse --show-toplevel', { fallback: process.cwd() });
         try {
           const worktreeList = run('git worktree list --porcelain', { fallback: '' });
           const entries = worktreeList.split('\n\n').filter(Boolean);
@@ -970,6 +1022,8 @@ const server = http.createServer(async (req, res) => {
             const branchLine = lines.find(l => l.startsWith('branch '));
             if (pathLine && branchLine) {
               const wtPath = pathLine.replace('worktree ', '');
+              // Skip the main repo - we only want secondary worktrees
+              if (wtPath === repoRoot) continue;
               const wtBranch = branchLine.replace('branch refs/heads/', '');
               if (wtBranch === branch) {
                 worktreePath = wtPath;
@@ -985,7 +1039,6 @@ const server = http.createServer(async (req, res) => {
         // Create worktree if it doesn't exist
         if (!worktreePath) {
           // Create worktree in ../worktrees/<project>/<branch>
-          const repoRoot = run('git rev-parse --show-toplevel', { fallback: process.cwd() });
           const parentDir = path.dirname(repoRoot);
           const worktreesDir = path.join(parentDir, 'worktrees', path.basename(repoRoot));
           const sanitizedBranch = branch.replace(/\//g, '-');
@@ -1010,28 +1063,39 @@ const server = http.createServer(async (req, res) => {
         // Open in cmux with the title
         console.log(`  -> Opening cmux workspace: ${workspaceTitle}`);
         try {
-          // Use cmux to open the worktree directory, which creates a new workspace
-          execSync(`cmux "${worktreePath}"`, { stdio: 'pipe' });
+          // Create new workspace and capture its ref from output (e.g., "OK workspace:31")
+          const createOutput = execSync(`cmux new-workspace --cwd "${worktreePath}"`, { encoding: 'utf8' }).trim();
+          const workspaceRefMatch = createOutput.match(/(workspace:\d+)/);
+          const workspaceRef = workspaceRefMatch ? workspaceRefMatch[1] : null;
+          console.log(`  -> Created workspace: ${workspaceRef}`);
 
-          // Small sleep to let workspace initialize
-          execSync('sleep 0.5', { stdio: 'pipe' });
+          if (workspaceRef) {
+            // Select the new workspace
+            try {
+              execSync(`cmux select-workspace --workspace "${workspaceRef}"`, { stdio: 'pipe' });
+              console.log(`  -> Selected workspace: ${workspaceRef}`);
+            } catch (e) {
+              console.log(`  -> Warning: Could not select workspace: ${e.message}`);
+            }
 
-          // Rename the workspace
-          try {
-            execSync(`cmux workspace-action --action rename --title "${workspaceTitle}"`, { stdio: 'pipe' });
-            console.log(`  -> Renamed workspace to: ${workspaceTitle}`);
-          } catch (e) {
-            console.log(`  -> Warning: Could not rename workspace: ${e.message}`);
+            // Rename the workspace (specify workspace ref to ensure we rename the right one)
+            try {
+              execSync(`cmux rename-workspace --workspace "${workspaceRef}" "${workspaceTitle}"`, { stdio: 'pipe' });
+              console.log(`  -> Renamed workspace to: ${workspaceTitle}`);
+            } catch (e) {
+              console.log(`  -> Warning: Could not rename workspace: ${e.message}`);
+            }
+
+            // Start Claude in the terminal (specify workspace ref)
+            try {
+              execSync(`cmux send --workspace "${workspaceRef}" "claude\\n"`, { stdio: 'pipe' });
+              console.log(`  -> Started Claude in workspace`);
+            } catch (e) {
+              console.log(`  -> Warning: Could not start Claude: ${e.message}`);
+            }
           }
 
-          // Start Claude in the terminal
-          try {
-            execSync('cmux send "claude\\n"', { stdio: 'pipe' });
-            console.log(`  -> Started Claude in workspace`);
-          } catch (e) {
-            console.log(`  -> Warning: Could not start Claude: ${e.message}`);
-          }
-
+          // Focus the cmux app
           execSync('cmux set-app-focus active', { stdio: 'pipe' });
 
           res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -115,6 +115,85 @@ body {
 .pr-status.closed { background: #da3633; color: white; }
 .pr-status.draft { background: #6e7681; color: white; }
 
+/* Header status row */
+.header-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.header-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.header-badge.draft {
+  background: rgba(110, 118, 129, 0.3);
+  color: var(--text-muted);
+}
+
+.header-badge.approved {
+  background: rgba(63, 185, 80, 0.2);
+  color: var(--green);
+}
+
+.header-badge.changes-requested {
+  background: rgba(248, 81, 73, 0.2);
+  color: var(--red);
+}
+
+.header-badge.pending {
+  background: rgba(139, 148, 158, 0.2);
+  color: var(--text-muted);
+}
+
+.header-badge.conflicts {
+  background: rgba(248, 81, 73, 0.2);
+  color: var(--red);
+}
+
+.header-badge.ci-success {
+  background: rgba(63, 185, 80, 0.2);
+  color: var(--green);
+}
+
+.header-badge.ci-failure {
+  background: rgba(248, 81, 73, 0.2);
+  color: var(--red);
+}
+
+.header-badge.ci-pending {
+  background: rgba(210, 153, 34, 0.2);
+  color: var(--orange);
+}
+
+.header-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+.header-stats .files {
+  color: var(--text-muted);
+}
+
+.header-stats .additions {
+  color: var(--green);
+  font-weight: 500;
+}
+
+.header-stats .deletions {
+  color: var(--red);
+  font-weight: 500;
+}
+
 /* Tabs */
 .tabs {
   display: flex;

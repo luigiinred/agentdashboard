@@ -8,18 +8,6 @@ interface HeaderProps {
 }
 
 export function Header({ project, user, branch, pr }: HeaderProps) {
-  const getStatusClass = () => {
-    if (!pr) return '';
-    if (pr.draft) return 'draft';
-    return pr.status.toLowerCase();
-  };
-
-  const getStatusText = () => {
-    if (!pr) return null;
-    if (pr.draft) return 'Draft';
-    return pr.status;
-  };
-
   return (
     <header className="header">
       {user && (
@@ -32,19 +20,49 @@ export function Header({ project, user, branch, pr }: HeaderProps) {
       <div className="header-info">
         <h1 className="project-name">{project}</h1>
         <div className="branch-info">
-          <span>{branch}</span>
+          <span className="branch-name-text">{branch}</span>
           {pr && (
             <>
-              <span>•</span>
+              <span className="separator">•</span>
               <a href={pr.url} target="_blank" rel="noopener" className="pr-link">
                 #{pr.number}
               </a>
-              <span className={`pr-status ${getStatusClass()}`}>
-                {getStatusText()}
-              </span>
+              {pr.draft && <span className="header-badge draft">Draft</span>}
             </>
           )}
         </div>
+        {pr && (
+          <div className="header-status-row">
+            {/* Review status */}
+            {pr.reviewDecision === 'APPROVED' && (
+              <span className="header-badge approved">✓ Approved</span>
+            )}
+            {pr.reviewDecision === 'CHANGES_REQUESTED' && (
+              <span className="header-badge changes-requested">✗ Changes requested</span>
+            )}
+            {!pr.reviewDecision && !pr.draft && (
+              <span className="header-badge pending">○ Awaiting review</span>
+            )}
+            {/* Merge status */}
+            {pr.mergeable === 'CONFLICTING' && (
+              <span className="header-badge conflicts">⚠ Conflicts</span>
+            )}
+            {/* CI status */}
+            {pr.checksStatus && (
+              <span className={`header-badge ci-${pr.checksStatus.toLowerCase()}`}>
+                {pr.checksStatus === 'SUCCESS' ? '✓' : pr.checksStatus === 'FAILURE' ? '✗' : '●'} CI
+              </span>
+            )}
+            {/* File stats */}
+            {pr.changedFiles !== undefined && (
+              <span className="header-stats">
+                <span className="files">{pr.changedFiles} files</span>
+                <span className="additions">+{pr.additions}</span>
+                <span className="deletions">-{pr.deletions}</span>
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );
