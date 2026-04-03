@@ -13,6 +13,11 @@ export interface PRInfo {
   draft: boolean;
   checksStatus: string | null;
   checks: CICheck[];
+  reviewDecision?: string | null;
+  mergeable?: string | null;
+  additions?: number;
+  deletions?: number;
+  changedFiles?: number;
 }
 
 export interface FileInfo {
@@ -123,6 +128,8 @@ export interface OpenPR {
   reviewDecision: string | null;
   mergeable: string | null;
   mergeStateStatus: string | null;
+  hasWorktree: boolean;
+  hasWorkspace: boolean;
   commentsCount: number;
   threadsCount: number;
   unresolvedThreads: number;

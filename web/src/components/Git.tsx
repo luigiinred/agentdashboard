@@ -159,9 +159,9 @@ function PRTreeItem({ node, currentBranch, project, depth = 0 }: { node: PRNode;
             className="btn-worktree"
             onClick={handleOpenWorktree}
             disabled={loading}
-            title="Open in cmux workspace"
+            title={pr.hasWorkspace ? 'Switch to existing workspace' : 'Open in new workspace'}
           >
-            {loading ? '...' : 'Open in cmux'}
+            {loading ? '...' : (pr.hasWorkspace ? 'Open workspace' : 'New workspace')}
           </button>
         )}
       </div>
