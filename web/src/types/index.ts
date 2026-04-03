@@ -89,6 +89,14 @@ export interface LocalComment {
   createdAt: string;
 }
 
+export interface Commit {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  date: string;
+}
+
 export interface DashboardData {
   project: string;
   branch: string;
@@ -107,6 +115,7 @@ export interface DashboardData {
   plugins: PluginData[];
   agentTabs: AgentTab[];
   uncommitted: UncommittedChanges;
+  commits: Commit[];
   localComments: LocalComment[];
   githubError: string | null;
   refreshInterval: number;

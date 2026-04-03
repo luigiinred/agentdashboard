@@ -3,6 +3,7 @@ import { useData } from './hooks/useData';
 import { Header } from './components/Header';
 import { Tabs } from './components/Tabs';
 import { Overview } from './components/Overview';
+import { Git } from './components/Git';
 import { Files } from './components/Files';
 import { Comments } from './components/Comments';
 import { AgentTabView } from './components/AgentTabView';
@@ -140,6 +141,7 @@ function App() {
 
   const baseTabs: { id: string; label: string; count?: number; hidden?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
+    { id: 'git', label: 'Git' },
     {
       id: 'files',
       label: 'Files',
@@ -188,6 +190,9 @@ function App() {
       <main className="content">
         {activeTab === 'overview' && (
           <Overview data={data} />
+        )}
+        {activeTab === 'git' && (
+          <Git data={data} />
         )}
         {activeTab === 'files' && (
           <Files
