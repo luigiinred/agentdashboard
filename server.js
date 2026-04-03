@@ -422,6 +422,8 @@ async function collectData() {
               deletions
               changedFiles
               reviewDecision
+              mergeable
+              mergeStateStatus
               comments { totalCount }
               reviewThreads(first: 100) {
                 totalCount
@@ -490,6 +492,8 @@ async function collectData() {
           checksPassed: passedChecks,
           checksTotal: totalChecks,
           reviewDecision: pr.reviewDecision,
+          mergeable: pr.mergeable,
+          mergeStateStatus: pr.mergeStateStatus,
           commentsCount: pr.comments?.totalCount || 0,
           threadsCount: pr.reviewThreads?.totalCount || 0,
           unresolvedThreads: unresolvedThreads,
@@ -912,6 +916,133 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ success: true }));
       } catch (err) {
         console.log(`  -> Error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // Open branch in worktree via cmux
+  if (pathname === '/api/open-worktree' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { branch, project } = JSON.parse(body);
+        const workspaceTitle = branch;
+        console.log(`[${new Date().toLocaleTimeString()}] Opening worktree for branch: ${branch}`);
+
+        // Check if cmux workspace already exists with this title
+        try {
+          const workspaces = run('cmux list-workspaces', { fallback: '' });
+          const lines = workspaces.split('\n');
+          for (const line of lines) {
+            // Line format: "* workspace:22  --id 24 --name title" or "  workspace:19  ✳ title"
+            // Extract the workspace ref (e.g., "workspace:22")
+            const refMatch = line.match(/(workspace:\d+)/);
+            if (refMatch) {
+              // Check if this line contains our title (after the workspace ref and any symbols)
+              const afterRef = line.slice(line.indexOf(refMatch[1]) + refMatch[1].length);
+              if (afterRef.includes(workspaceTitle) || afterRef.includes(branch)) {
+                // Found existing workspace, select it and focus
+                console.log(`  -> Found existing workspace: ${refMatch[1]}`);
+                execSync(`cmux select-workspace --workspace "${refMatch[1]}"`, { stdio: 'pipe' });
+                execSync('cmux set-app-focus active', { stdio: 'pipe' });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, action: 'selected', workspace: refMatch[1], isNew: false }));
+                return;
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`  -> Error checking workspaces: ${e.message}`);
+        }
+
+        // Check if worktree already exists for this branch
+        let worktreePath = null;
+        try {
+          const worktreeList = run('git worktree list --porcelain', { fallback: '' });
+          const entries = worktreeList.split('\n\n').filter(Boolean);
+          for (const entry of entries) {
+            const lines = entry.split('\n');
+            const pathLine = lines.find(l => l.startsWith('worktree '));
+            const branchLine = lines.find(l => l.startsWith('branch '));
+            if (pathLine && branchLine) {
+              const wtPath = pathLine.replace('worktree ', '');
+              const wtBranch = branchLine.replace('branch refs/heads/', '');
+              if (wtBranch === branch) {
+                worktreePath = wtPath;
+                console.log(`  -> Found existing worktree: ${wtPath}`);
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`  -> Error listing worktrees: ${e.message}`);
+        }
+
+        // Create worktree if it doesn't exist
+        if (!worktreePath) {
+          // Create worktree in ../worktrees/<project>/<branch>
+          const repoRoot = run('git rev-parse --show-toplevel', { fallback: process.cwd() });
+          const parentDir = path.dirname(repoRoot);
+          const worktreesDir = path.join(parentDir, 'worktrees', path.basename(repoRoot));
+          const sanitizedBranch = branch.replace(/\//g, '-');
+          worktreePath = path.join(worktreesDir, sanitizedBranch);
+
+          // Ensure worktrees directory exists
+          if (!fs.existsSync(worktreesDir)) {
+            fs.mkdirSync(worktreesDir, { recursive: true });
+          }
+
+          console.log(`  -> Creating worktree at: ${worktreePath}`);
+          try {
+            execSync(`git worktree add "${worktreePath}" "${branch}"`, { stdio: 'pipe' });
+          } catch (e) {
+            console.log(`  -> Error creating worktree: ${e.message}`);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Failed to create worktree: ${e.message}` }));
+            return;
+          }
+        }
+
+        // Open in cmux with the title
+        console.log(`  -> Opening cmux workspace: ${workspaceTitle}`);
+        try {
+          // Use cmux to open the worktree directory, which creates a new workspace
+          execSync(`cmux "${worktreePath}"`, { stdio: 'pipe' });
+
+          // Small sleep to let workspace initialize
+          execSync('sleep 0.5', { stdio: 'pipe' });
+
+          // Rename the workspace
+          try {
+            execSync(`cmux workspace-action --action rename --title "${workspaceTitle}"`, { stdio: 'pipe' });
+            console.log(`  -> Renamed workspace to: ${workspaceTitle}`);
+          } catch (e) {
+            console.log(`  -> Warning: Could not rename workspace: ${e.message}`);
+          }
+
+          // Start Claude in the terminal
+          try {
+            execSync('cmux send "claude\\n"', { stdio: 'pipe' });
+            console.log(`  -> Started Claude in workspace`);
+          } catch (e) {
+            console.log(`  -> Warning: Could not start Claude: ${e.message}`);
+          }
+
+          execSync('cmux set-app-focus active', { stdio: 'pipe' });
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, action: 'created', worktree: worktreePath, isNew: true }));
+        } catch (e) {
+          console.log(`  -> Error opening cmux: ${e.message}`);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Failed to open cmux: ${e.message}` }));
+        }
+      } catch (err) {
+        console.log(`[${new Date().toLocaleTimeString()}] Open worktree error: ${err.message}`);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
       }
