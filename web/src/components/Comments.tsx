@@ -27,6 +27,8 @@ export function Comments({ comments, localComments }: CommentsProps) {
   const [showGithub, setShowGithub] = useState(true);
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
 
   // Group local comments by target for initial collapsed state
   const getLocalThreadKey = (lc: LocalComment) => lc.target || `file:${lc.path}:${lc.line}`;
@@ -78,11 +80,13 @@ export function Comments({ comments, localComments }: CommentsProps) {
     if (!newComment.trim() || isSubmitting) return;
     setIsSubmitting(true);
     try {
+      // Each new general comment gets its own unique thread ID
+      const threadId = `general:${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
       await fetch('/api/local-comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          target: 'general',
+          target: threadId,
           body: newComment.trim(),
           author: 'human',
         }),
@@ -90,6 +94,28 @@ export function Comments({ comments, localComments }: CommentsProps) {
       setNewComment('');
     } catch (e) {
       alert('Failed to post comment');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const submitReply = async (threadTarget: string) => {
+    if (!replyText.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await fetch('/api/local-comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target: threadTarget,
+          body: replyText.trim(),
+          author: 'human',
+        }),
+      });
+      setReplyText('');
+      setReplyingTo(null);
+    } catch (e) {
+      alert('Failed to post reply');
     } finally {
       setIsSubmitting(false);
     }
@@ -239,7 +265,10 @@ export function Comments({ comments, localComments }: CommentsProps) {
       {filteredLocalThreads.map(([threadKey, thread]) => {
         const isResolved = thread.every(c => c.resolved);
         const firstComment = thread[0];
-        const displayPath = firstComment.target || firstComment.path || 'General';
+        const target = firstComment.target || firstComment.path || '';
+        // Display "General" for general threads, otherwise show the path/target
+        const isGeneral = target.startsWith('general:') || target === 'general';
+        const displayPath = isGeneral ? 'General' : target;
 
         return (
           <div key={threadKey} className={`comment-thread local ${isResolved ? 'resolved' : ''}`}>
@@ -288,6 +317,47 @@ export function Comments({ comments, localComments }: CommentsProps) {
                   </div>
                 </div>
               ))}
+              {/* Reply form */}
+              {replyingTo === threadKey ? (
+                <div className="comment-reply-form">
+                  <textarea
+                    className="comment-input"
+                    placeholder="Write a reply..."
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        submitReply(threadKey);
+                      }
+                    }}
+                    rows={2}
+                    autoFocus
+                  />
+                  <div className="comment-input-actions">
+                    <button
+                      className="btn-cancel"
+                      onClick={() => { setReplyingTo(null); setReplyText(''); }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="btn-send"
+                      onClick={() => submitReply(threadKey)}
+                      disabled={!replyText.trim() || isSubmitting}
+                    >
+                      {isSubmitting ? 'Sending...' : 'Reply'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="btn-reply"
+                  onClick={(e) => { e.stopPropagation(); setReplyingTo(threadKey); }}
+                >
+                  Reply
+                </button>
+              )}
             </div>
           </div>
         );

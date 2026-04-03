@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useData } from './hooks/useData';
 import { Header } from './components/Header';
 import { Tabs } from './components/Tabs';
@@ -6,6 +6,8 @@ import { Overview } from './components/Overview';
 import { Files } from './components/Files';
 import { Comments } from './components/Comments';
 import { AgentTabView } from './components/AgentTabView';
+import { ToastContainer } from './components/Toast';
+import type { ToastMessage } from './components/Toast';
 import './styles.css';
 
 // Detect if we're in cmux browser (not a standard browser like Chrome/Safari/Firefox)
@@ -35,6 +37,66 @@ async function openInSystemBrowser(url: string): Promise<boolean> {
 function App() {
   const { data, loading, error } = useData();
   const [activeTab, setActiveTab] = useState<string>('overview');
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Track seen comment IDs to detect new ones
+  const seenLocalCommentIds = useRef<Set<string>>(new Set());
+  const seenGithubCommentIds = useRef<Set<number>>(new Set());
+  const isInitialized = useRef(false);
+
+  const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    setToasts(prev => [...prev, { ...toast, id }]);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // Detect new comments and show toasts
+  useEffect(() => {
+    if (!data) return;
+
+    // On first load, just record all existing IDs without showing toasts
+    if (!isInitialized.current) {
+      data.localComments.forEach(c => seenLocalCommentIds.current.add(c.id));
+      data.comments.forEach(thread => {
+        thread.comments.forEach(c => seenGithubCommentIds.current.add(c.id));
+      });
+      isInitialized.current = true;
+      return;
+    }
+
+    // Check for new agent comments (local comments with author='agent')
+    data.localComments.forEach(comment => {
+      if (!seenLocalCommentIds.current.has(comment.id)) {
+        seenLocalCommentIds.current.add(comment.id);
+        if (comment.author === 'agent') {
+          addToast({
+            type: 'agent-comment',
+            title: 'New Agent Comment',
+            body: comment.body.length > 100 ? comment.body.slice(0, 100) + '...' : comment.body,
+            onClick: () => setActiveTab('comments'),
+          });
+        }
+      }
+    });
+
+    // Check for new GitHub comments
+    data.comments.forEach(thread => {
+      thread.comments.forEach(comment => {
+        if (!seenGithubCommentIds.current.has(comment.id)) {
+          seenGithubCommentIds.current.add(comment.id);
+          addToast({
+            type: 'github-comment',
+            title: `New comment from ${comment.author}`,
+            body: comment.body.length > 100 ? comment.body.slice(0, 100) + '...' : comment.body,
+            onClick: () => setActiveTab('comments'),
+          });
+        }
+      });
+    });
+  }, [data, addToast]);
 
   // Intercept GitHub links when in cmux browser
   useEffect(() => {
@@ -160,6 +222,8 @@ function App() {
           Refresh Now
         </button>
       </footer>
+
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
