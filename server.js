@@ -242,6 +242,7 @@ async function collectData() {
     plugins: [],
     agentTabs: readAgentTabs(),
     uncommitted: { staged: [], unstaged: [], untracked: [] },
+    commits: [],
     localComments: readLocalComments(),
     githubError: githubError,
     refreshInterval: REFRESH_INTERVAL,
@@ -365,6 +366,15 @@ async function collectData() {
       };
       data.baseBranch = prNode.baseRefName || 'main';
     }
+  }
+
+  // Get recent commits on this branch
+  const commitLog = run(`git log --format="%H|%h|%s|%an|%ai" -10 2>/dev/null`, { fallback: '' });
+  if (commitLog) {
+    data.commits = commitLog.split('\n').filter(Boolean).map(line => {
+      const [hash, shortHash, subject, author, date] = line.split('|');
+      return { hash, shortHash, subject, author, date };
+    });
   }
 
   // Get merge base and file stats
